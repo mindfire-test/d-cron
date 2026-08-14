@@ -1,0 +1,25 @@
+# Placeholder Deployment scaffold for the 5-replica acceptance tests
+# (AC-01..AC-03 in the SDS). Replicas share one Postgres advisory-lock
+# namespace; exactly one becomes leader and runs the clock.
+#
+# The manifest is finalized once the scheduler core (Phase 1) lands and the
+# readiness/health probes are defined.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: d-cron-example
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: d-cron-example
+  template:
+    metadata:
+      labels:
+        app: d-cron-example
+    spec:
+      containers:
+        - name: app
+          image: d-cron-example:latest
+          # TODO(Phase 1): liveness/readiness probes and env wiring for the
+          # DSN and session-stability settings once defined.

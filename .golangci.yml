@@ -1,0 +1,43 @@
+# golangci-lint configuration for d-cron.
+#
+# Kept to a deliberate, low-noise baseline for a Go library: correctness and
+# formatting checks only. Revisit before widening in later phases.
+#
+#   golangci-lint run
+#
+# See https://golangci-lint.run/usage/configuration/ for reference.
+run:
+  # Total per-run timeout; generous for CI on cold caches.
+  timeout: 5m
+  concurrency: 4
+
+linters:
+  # Only the linters explicitly listed below run.
+  disable-all: true
+  enable:
+    - bodyclose # HTTP response bodies must be closed (std-only for now).
+    - errcheck # unchecked errors.
+    - errorlint # error-wrapping correctness (Go 1.13+).
+    - gofumpt # stricter formatting; keeps the project gofumpt-compliant.
+    - govet # go vet.
+    - ineffassign # assignments whose effect is never read.
+    - misspell # typos in comments/strings/identifiers.
+    - revive # drop-in replacement for golint.
+    - staticcheck # broad static-analysis suite.
+    - typecheck # type errors via go list.
+    - unconvert # unnecessary type conversions.
+    - unused # unused declarations/fields.
+  settings:
+    gofumpt:
+      # Keep the bundled gofumpt in lock-step with the module's Go version.
+      lang-version: "1.23"
+      module-path: d-cron
+    revive:
+      confidence: 0.8
+    misspell:
+      locale: US
+
+issues:
+  # Only report the first issue per file/line-range to keep output readable.
+  max-issues-per-linter: 50
+  max-same-issues: 3

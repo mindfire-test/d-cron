@@ -1,0 +1,42 @@
+# Lefthook configuration for d-cron.
+#
+# Mirrors DeepScanBot's commit gates, adapted for a pure-Go library. Install the
+# tool once (see DEVELOPMENT.md), then:
+#
+#   lefthook install
+#   git add . && git commit -m "chore(ci): add lefthook commit gates"
+#
+# Gates:
+#   pre-commit   — format staged Go (gofumpt), lint (golangci-lint), build.
+#   commit-msg   — enforce Conventional Commits message format.
+#   pre-push     — build + test before the push leaves the machine.
+#
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.go"
+      run: gofumpt -w {staged_files}
+    lint:
+      run: golangci-lint run --timeout 5m ./...
+    build:
+      run: go build ./...
+
+commit-msg:
+  commands:
+    conventional-commit:
+      run: |
+        if ! grep -qE "^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert|merge)(\\(.+\\))?: .{1,100}" {1}; then
+          echo "Error: Commit message does not follow Conventional Commits format."
+          echo "Format: <type>[(<scope>)]: <subject>"
+          echo "Types: feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert, merge"
+          exit 1
+        fi
+
+pre-push:
+  parallel: true
+  commands:
+    build:
+      run: go build ./...
+    test:
+      run: go test ./...

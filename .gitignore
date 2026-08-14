@@ -1,0 +1,19 @@
+# Binaries
+/d-cron
+*.exe
+*.test
+*.out
+
+# Test/coverage output
+/coverage.out
+/*.prof
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
