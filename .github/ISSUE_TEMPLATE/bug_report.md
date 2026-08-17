@@ -17,6 +17,10 @@ A clear and concise description of what the bug is.
 3. Scroll down to '...'
 4. See error
 
+## Current Behavior
+
+A clear and concise description of what is currently happening after following the Reproduction Steps.
+
 ## Expected Behavior
 
 A clear and concise description of what you expected to happen.
