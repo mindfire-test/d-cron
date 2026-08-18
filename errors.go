@@ -19,6 +19,13 @@ var (
 	// scheduler.
 	ErrNotStarted = errors.New("dcron: scheduler not started")
 
+	// ErrAlreadyStarted is returned when an operation requires a scheduler
+	// that has not yet been started.
+	ErrAlreadyStarted = errors.New("dcron: scheduler already started")
+
+	// ErrNilJob is returned when Add receives a nil job function.
+	ErrNilJob = errors.New("dcron: nil job function")
+
 	// ErrNotLeader is returned when an action requires the scheduler to be the
 	// elected leader.
 	ErrNotLeader = errors.New("dcron: not the leader")

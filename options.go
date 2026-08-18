@@ -1,6 +1,8 @@
 package dcron
 
 import (
+	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 )
@@ -8,8 +10,8 @@ import (
 // Option configures a Scheduler at construction time.
 //
 // Options are applied in order on top of the defaults and are passed to New.
-// All options have working defaults; the mandatory session-stability
-// assertion is added in Phase 1 (SDS §3.4).
+// All options have working defaults except the session-stability assertion,
+// which defaults to an automatic probe (SDS §3.4).
 type Option func(*options)
 
 // options is the resolved scheduler configuration.
@@ -19,6 +21,9 @@ type options struct {
 	pollInterval time.Duration
 	drainTimeout time.Duration
 	logger       *slog.Logger
+
+	sessionStable bool
+	lockConn      func(ctx context.Context) (*sql.Conn, error)
 }
 
 // defaultOptions returns the documented defaults.
@@ -69,5 +74,26 @@ func WithDrainTimeout(d time.Duration) Option {
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) {
 		o.logger = l
+	}
+}
+
+// WithSessionStableConnection asserts that the connection supplied to New is
+// session-stable (a direct Postgres connection or a session-mode pooler) and
+// skips the automatic probe. Set it only when you are certain: a
+// transaction-mode pooler silently corrupts advisory-lock semantics.
+func WithSessionStableConnection() Option {
+	return func(o *options) {
+		o.sessionStable = true
+	}
+}
+
+// WithDedicatedLockConn supplies a function that opens a dedicated, direct
+// connection used exclusively for the advisory lock (the SDS's
+// WithDedicatedLockDSN, expressed driver-agnostically). The scheduler probes
+// neither session stability nor pool capacity when this is set: the operator
+// is asserting the connection bypasses any pooler.
+func WithDedicatedLockConn(open func(ctx context.Context) (*sql.Conn, error)) Option {
+	return func(o *options) {
+		o.lockConn = open
 	}
 }
