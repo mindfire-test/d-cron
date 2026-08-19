@@ -6,11 +6,11 @@ consistent pre-commit / CI gate; versions are pinned for reproducibility.
 
 ## Required tools
 
-| Tool            | Pinned version          | Verify with        |
-| --------------- | ----------------------- | ------------------ |
-| Go              | `go 1.23` (go.mod)      | `go version`       |
-| gofumpt         | `v0.10.0`               | `gofumpt -version` |
-| golangci-lint   | `v1.64.8`               | `golangci-lint version` |
+| Tool          | Pinned version     | Verify with             |
+| ------------- | ------------------ | ----------------------- |
+| Go            | `go 1.23` (go.mod) | `go version`            |
+| gofumpt       | `v0.10.0`          | `gofumpt -version`      |
+| golangci-lint | `v1.64.8`          | `golangci-lint version` |
 
 `gofumpt` reads the Go language version and module path from `go.mod`, so no
 `.gofumpt.toml` is required. The `gofumpt` linter inside `golangci-lint` is
@@ -64,13 +64,13 @@ make hooks        # alias for `lefthook install`
 
 The committed `.lefthook.yml` enforces four blocking gates:
 
-| Gate          | Hook        | When                  | Commands                                   |
-| ------------- | ----------- | --------------------- | ------------------------------------------ |
-| `format`      | pre-commit  | before a commit lands | `gofumpt -w` on staged `.go` files          |
-| `lint`        | pre-commit  | before a commit lands | `golangci-lint run ./...`                   |
-| `build`       | pre-commit  | before a commit lands | `go build ./...`                            |
-| **message**   | commit-msg  | on every commit        | Conventional Commits regex on the msg file  |
-| `build`+`test`| pre-push    | before pushing         | `go build ./...` and `go test ./...`        |
+| Gate           | Hook       | When                  | Commands                                   |
+| -------------- | ---------- | --------------------- | ------------------------------------------ |
+| `format`       | pre-commit | before a commit lands | `gofumpt -w` on staged `.go` files         |
+| `lint`         | pre-commit | before a commit lands | `golangci-lint run ./...`                  |
+| `build`        | pre-commit | before a commit lands | `go build ./...`                           |
+| **message**    | commit-msg | on every commit       | Conventional Commits regex on the msg file |
+| `build`+`test` | pre-push   | before pushing        | `go build ./...` and `go test ./...`       |
 
 Run all gates locally (including the commit-msg check) with:
 
@@ -97,4 +97,3 @@ feat(clock): add cron expression parser
 Add a 5-field cron parser with timezone lookup, plus table-driven tests for
 valid and ambiguous schedules.
 ```
-

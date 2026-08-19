@@ -7,9 +7,11 @@
 ## 1. The Problem & Positioning
 
 ### The Problem
+
 Standard in-process cron libraries maintain an in-memory timer heap scoped to a single process. When your application scales horizontally to `N` container replicas, each replica independently reaches the trigger time and executes the job. A job scheduled for `0 2 * * *` (2:00 AM) therefore **fires `N` times simultaneously**.
 
 ### Product Positioning
+
 `d-cron` occupies the unoccupied space between a simple in-process cron library and a heavy workflow engine:
 
 ```
@@ -26,25 +28,27 @@ cron only         cron (this)      + cron            cluster       engine
 
 ## 2. Feature Comparison
 
-| Factor | `robfig/cron` | `gocron` | `asynq` | `river` | **`d-cron`** |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Architecture** | In-Process | In-Process | Task Queue | Task Queue | **In-Process** |
-| **Infra Required** | None | Redis | Redis | Postgres + Tables | **Postgres (No extra tables)** |
-| **Coordination** | None | Per-Job Lock Race | Queue Enqueue | Leader Election | **Leader Election** |
-| **Leader Election** | ✗ No | ✗ No | ✗ No | ✓ Yes | **✓ Yes** |
-| **Split-Brain Fencing**| ✗ No | ✗ No | ✗ No | ✗ No | **✓ Yes** |
-| **License** | Open Source | Open Source | Open Source | Paid | **Open Source** |
+| Factor                  | `robfig/cron` | `gocron`          | `asynq`       | `river`           | **`d-cron`**                   |
+| :---------------------- | :------------ | :---------------- | :------------ | :---------------- | :----------------------------- |
+| **Architecture**        | In-Process    | In-Process        | Task Queue    | Task Queue        | **In-Process**                 |
+| **Infra Required**      | None          | Redis             | Redis         | Postgres + Tables | **Postgres (No extra tables)** |
+| **Coordination**        | None          | Per-Job Lock Race | Queue Enqueue | Leader Election   | **Leader Election**            |
+| **Leader Election**     | ✗ No          | ✗ No              | ✗ No          | ✓ Yes             | **✓ Yes**                      |
+| **Split-Brain Fencing** | ✗ No          | ✗ No              | ✗ No          | ✗ No              | **✓ Yes**                      |
+| **License**             | Open Source   | Open Source       | Open Source   | Paid              | **Open Source**                |
 
 ---
 
 ## 3. Quickstart
 
 ### Installation
+
 ```sh
 go get github.com/mindfire-test/d-cron
 ```
 
 ### Usage Example
+
 ```go
 import (
 	"context"
@@ -64,11 +68,14 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize d-cron. WithNamespace scopes the lock; session-stability
-	// (SDS §3.4) is a Phase-1 requirement (not yet on the v0.x scaffolding).
+	// Initialize d-cron. WithNamespace scopes the lock. The session-stability
+	// assertion (SDS §3.4, issue #12) is mandatory: a transaction-mode pooler
+	// corrupts advisory-lock semantics, so d-cron refuses to start without
+	// WithSessionStableConnection() or a dedicated lock connection.
 	scheduler, err := dcron.New(db,
 		dcron.WithNamespace("billing"),
 		dcron.WithPollInterval(3*time.Second),
+		dcron.WithSessionStableConnection(),
 		dcron.WithLogger(slog.Default()),
 	)
 	if err != nil {
@@ -88,13 +95,21 @@ func main() {
 		log.Fatalf("Failed to register job: %v", err)
 	}
 
-	// Start leader election & the scheduler loop. Stop is bounded by
-	// WithDrainTimeout (default 30s).
-	ctx := context.Background()
-	if err := scheduler.Start(ctx); err != nil {
+	// Start leader election & the scheduler loop.
+	rootCtx := context.Background()
+	if err := scheduler.Start(rootCtx); err != nil {
 		log.Fatalf("Failed to start scheduler: %v", err)
 	}
-	defer scheduler.Stop(ctx)
+	// Stop must be BOUNDED (issue #22): passing context.Background() here would
+	// let a single stuck 30-minute job hang SIGTERM until the orchestrator
+	// SIGKILLs the pod. Give it the same 30s budget as WithDrainTimeout.
+	stopCtx, stopCancel := context.WithTimeout(rootCtx, 30*time.Second)
+	defer func() {
+		stopCancel()
+		if err := scheduler.Stop(stopCtx); err != nil {
+			log.Printf("shutdown: %v", err)
+		}
+	}()
 }
 ```
 
@@ -103,17 +118,19 @@ func main() {
 ## 4. Correctness Model & Guarantees
 
 ### What `d-cron` Guarantees
+
 - **Under Normal Operation**: At-most-once execution per scheduled fire time across all replicas.
 - **Under Leader Failover**: Automatic standby promotion within 1 poll interval on process exit.
 - **Split-Brain Protection**: Monotonic leader epoch tokens (`LeaderEpoch`) injected into job `context.Context` to fence stale database writes.
 - **Single Replica Parity**: If deployed with `N=1`, degrades gracefully to behave as an ordinary in-process cron.
 
 ### Failure Mode Behaviour
-| Failure Scenario | System Behaviour |
-| :--- | :--- |
-| **Graceful Stop** | Advisory lock explicitly released via `pg_advisory_unlock`; standby promoted within 1 poll interval. |
-| **Process SIGKILL** | Kernel closes TCP socket; PostgreSQL reaps backend session and frees lock; standby promoted within 1 poll interval. |
-| **Network Cut** | PostgreSQL backend blocks in `recv()`. **Lock is NOT released until TCP Keepalives expire** (requires operator configuration below). |
+
+| Failure Scenario       | System Behaviour                                                                                                                                                           |
+| :--------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Graceful Stop**      | Advisory lock explicitly released via `pg_advisory_unlock`; standby promoted within 1 poll interval.                                                                       |
+| **Process SIGKILL**    | Kernel closes TCP socket; PostgreSQL reaps backend session and frees lock; standby promoted within 1 poll interval.                                                        |
+| **Network Cut**        | PostgreSQL backend blocks in `recv()`. **Lock is NOT released until TCP Keepalives expire** (requires operator configuration below).                                       |
 | **Transaction Pooler** | Transaction-mode poolers hand 1 server session to multiple clients, breaking lock semantics. Requires operator assertion (`WithSessionStableConnection`) or dedicated DSN. |
 
 ---
@@ -121,17 +138,21 @@ func main() {
 ## 5. Mandatory Operator Configuration
 
 ### PostgreSQL TCP Keepalives
-PostgreSQL releases session advisory locks when the backend process exits. If a host physically loses power or gets partitioned, PostgreSQL's default TCP keepalives on Linux will delay failover for hours. 
+
+PostgreSQL releases session advisory locks when the backend process exits. If a host physically loses power or gets partitioned, PostgreSQL's default TCP keepalives on Linux will delay failover for hours.
 
 Operators **MUST** configure DSN keepalive settings for prompt host-death failover:
+
 ```dsn
 postgres://user:pass@host:5432/db?keepalives=1&keepalives_idle=5&keepalives_interval=2&keepalives_count=3
 ```
 
 ### PgBouncer / Connection Poolers
+
 Session-level advisory locks are bound to a database session. Transaction-level poolers (like PgBouncer in `transaction` mode) recycle sessions across clients, which can cause orphaned locks or duplicate leader acquisition.
 
 `d-cron` requires operators to pass an explicit assertion option or use a dedicated direct DSN:
+
 ```go
 // Session-stability options are Phase 1 (SDS §3.4) and not yet on the v0.x scaffolding.
 dcron.WithSessionStableConnection()      // Operator asserts direct connection or session-mode pooler
@@ -143,13 +164,15 @@ dcron.WithDedicatedLockDSN(dsn)          // DCron opens its own dedicated direct
 ## 6. Development & Workflow
 
 ### Required Tooling
-| Tool | Version | Verification |
-| :--- | :--- | :--- |
-| Go | `go 1.23` (go.mod) | `go version` |
-| gofumpt | `v0.10.0` | `gofumpt -version` |
-| golangci-lint | `v1.64.8` | `golangci-lint version` |
+
+| Tool          | Version            | Verification            |
+| :------------ | :----------------- | :---------------------- |
+| Go            | `go 1.23` (go.mod) | `go version`            |
+| gofumpt       | `v0.10.0`          | `gofumpt -version`      |
+| golangci-lint | `v1.64.8`          | `golangci-lint version` |
 
 ### Makefile Commands
+
 ```sh
 make fmt        # Format code with gofumpt
 make check      # Verify formatting compliance
@@ -161,10 +184,13 @@ make ci         # Run complete CI gate locally (fmt -> vet -> lint -> build -> t
 ```
 
 ### Commit Message Standard
+
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
+
 ```
 <type>[(<scope>)]: <subject>
 ```
-*Example*: `feat(elector): add postgres advisory lock acquirer`
+
+_Example_: `feat(elector): add postgres advisory lock acquirer`
 
 ---
