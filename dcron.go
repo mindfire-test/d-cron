@@ -143,7 +143,13 @@ func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error 
 	if _, exists := s.jobs[name]; exists {
 		return ErrJobExists
 	}
-	sched, err := clock.Parse(spec, s.opts.location)
+	var sched clock.Schedule
+	var err error
+	if s.opts.secondsField {
+		sched, err = clock.ParseSeconds(spec, s.opts.location)
+	} else {
+		sched, err = clock.Parse(spec, s.opts.location)
+	}
 	if err != nil {
 		return ErrInvalidSpec
 	}

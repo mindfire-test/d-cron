@@ -37,6 +37,7 @@ type options struct {
 	instance      string // host-unique id stamped into leadership logs
 	sessionStable bool
 	lockConn      func(ctx context.Context) (*sql.Conn, error)
+	secondsField  bool // parse specs as 6-field cron with a leading seconds field
 }
 
 // defaultOptions returns the documented defaults.
@@ -128,5 +129,16 @@ func WithDedicatedLockDSN(dsn string) Option {
 			}
 			return db.Conn(ctx)
 		}
+	}
+}
+
+// WithSecondsField enables 6-field cron schedules (second minute hour
+// day-of-month month day-of-week), parsed by clock.ParseSeconds, so a job can
+// fire on a sub-minute cadence. It is accepted for compatibility only when
+// paired with a driver that supports it; by default schedules are 5-field. See
+// issue #15 / FR-212.
+func WithSecondsField() Option {
+	return func(o *options) {
+		o.secondsField = true
 	}
 }
