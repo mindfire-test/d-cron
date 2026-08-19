@@ -20,7 +20,7 @@ cron only         cron (this)      + cron            cluster       engine
 
 - **Zero New Infrastructure**: No Redis, no etcd, no sidecars. Uses PostgreSQL session-bound advisory locks (`pg_try_advisory_lock`).
 - **Single Leader Scheduler**: 1 active Leader replica runs the timer clock; 0 thundering-herd database lock spikes at trigger boundaries.
-- **In-Process Go Functions**: Register ordinary Go functions (`AddFunc`). No queue tables, no schema migrations, no JSON argument serialization required for Phase 1.
+- **In-Process Go Functions**: Register ordinary Go functions (`Add`). No queue tables, no schema migrations, no JSON argument serialization required for Phase 1.
 
 ---
 
@@ -41,7 +41,7 @@ cron only         cron (this)      + cron            cluster       engine
 
 ### Installation
 ```sh
-go get github.com/ansumanmindfire/d-cron
+go get github.com/mindfire-test/d-cron
 ```
 
 ### Usage Example
@@ -51,11 +51,10 @@ import (
 	"database/sql"
 	"log"
 	"log/slog"
-	"os"
 	"time"
 
-	"github.com/ansumanmindfire/d-cron"
-	_ "github.com/lib/pq"
+	"github.com/mindfire-test/d-cron"
+	_ "github.com/lib/pq" // register the Postgres driver
 )
 
 func main() {
@@ -65,37 +64,37 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize DCron with session-stability assertion
+	// Initialize d-cron. WithNamespace scopes the lock; session-stability
+	// (SDS §3.4) is a Phase-1 requirement (not yet on the v0.x scaffolding).
 	scheduler, err := dcron.New(db,
-		dcron.WithLockKey("my-service:cron:leader"),
+		dcron.WithNamespace("billing"),
 		dcron.WithPollInterval(3*time.Second),
 		dcron.WithLogger(slog.Default()),
 	)
 	if err != nil {
-		log.Fatalf("Failed to initialize dcron: %v", err)
+		log.Fatalf("Failed to initialize d-cron: %v", err)
 	}
 
 	// Register an in-process Go job (cron spec syntax)
-	err = scheduler.AddFunc("0 2 * * *", func(ctx context.Context) error {
-		exec, ok := dcron.FromContext(ctx)
-		if ok {
-			slog.Info("Executing daily report cleanup",
-				slog.String("job_id", exec.JobID),
-				slog.Uint64("epoch", exec.LeaderEpoch),
-			)
-		}
+	err = scheduler.Add("daily-cleanup", "0 2 * * *", func(ctx context.Context) error {
+		slog.Info("Executing daily report cleanup",
+			slog.String("job", "daily-cleanup"),
+			slog.Int64("epoch", dcron.Epoch(ctx)),
+			slog.String("idempotency_key", dcron.IdempotencyKey(ctx)),
+		)
 		return nil
 	})
 	if err != nil {
 		log.Fatalf("Failed to register job: %v", err)
 	}
 
-	// Start leader election & scheduler loop in background
+	// Start leader election & the scheduler loop. Stop is bounded by
+	// WithDrainTimeout (default 30s).
 	ctx := context.Background()
-	scheduler.Start(ctx)
-
-	// Graceful shutdown on exit
-	defer scheduler.Stop()
+	if err := scheduler.Start(ctx); err != nil {
+		log.Fatalf("Failed to start scheduler: %v", err)
+	}
+	defer scheduler.Stop(ctx)
 }
 ```
 
@@ -134,6 +133,7 @@ Session-level advisory locks are bound to a database session. Transaction-level 
 
 `d-cron` requires operators to pass an explicit assertion option or use a dedicated direct DSN:
 ```go
+// Session-stability options are Phase 1 (SDS §3.4) and not yet on the v0.x scaffolding.
 dcron.WithSessionStableConnection()      // Operator asserts direct connection or session-mode pooler
 dcron.WithDedicatedLockDSN(dsn)          // DCron opens its own dedicated direct connection
 ```

@@ -31,7 +31,7 @@ linters:
     gofumpt:
       # Keep the bundled gofumpt in lock-step with the module's Go version.
       lang-version: "1.23"
-      module-path: d-cron
+      module-path: github.com/mindfire-test/d-cron
     revive:
       confidence: 0.8
     misspell:
