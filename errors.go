@@ -29,4 +29,14 @@ var (
 	// ErrNotLeader is returned when an action requires the scheduler to be the
 	// elected leader.
 	ErrNotLeader = errors.New("dcron: not the leader")
+
+	// ErrSessionStabilityUnasserted is returned by New when the operator has not
+	// asserted session stability or supplied a dedicated lock connection (SDS
+	// §3.4, issue #12). A transaction-mode pooler silently corrupts
+	// advisory-lock semantics — two simultaneous leaders and an orphaned lock —
+	// so d-cron refuses to start rather than guess. Remedies: pass
+	// WithSessionStableConnection(), supply WithDedicatedLockConn/WithDedicatedLockDSN,
+	// configure PgBouncer in session mode, or wait for the Phase 4 direct
+	// connection path.
+	ErrSessionStabilityUnasserted = errors.New("dcron: session stability not asserted; refusing to start. PgBouncer in transaction mode corrupts advisory-lock semantics (two leaders, orphaned lock). Pass WithSessionStableConnection() to assert a direct/session-mode connection, or WithDedicatedLockConn/WithDedicatedLockDSN to supply a dedicated connection that bypasses any pooler")
 )

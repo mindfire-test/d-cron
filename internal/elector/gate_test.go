@@ -115,3 +115,78 @@ func TestPoolCapacity(t *testing.T) {
 		t.Fatalf("maxOpen=1: err = %v; want ErrSingleConnectionPool", err)
 	}
 }
+
+// keepaliveRow scans two nullable ints (the keepalive GUC probe result).
+type keepaliveRow struct {
+	i1, i2 *int
+	err    error
+}
+
+func (r keepaliveRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if len(dest) >= 2 {
+		if p1, ok := dest[0].(**int); ok {
+			*p1 = r.i1
+		}
+		if p2, ok := dest[1].(**int); ok {
+			*p2 = r.i2
+		}
+	}
+	return nil
+}
+
+// keepaliveQuerier returns a single row of keepalive GUC values.
+type keepaliveQuerier struct {
+	i1, i2 *int
+	err    error
+}
+
+func (q keepaliveQuerier) QueryRowContext(_ context.Context, _ string, _ ...any) Row {
+	return keepaliveRow{i1: q.i1, i2: q.i2, err: q.err}
+}
+
+func intp(v int) *int { return &v }
+
+func TestKeepaliveUnsafe(t *testing.T) {
+	if !KeepaliveUnsafe(0, 0) {
+		t.Fatal("both 0 must be unsafe")
+	}
+	if KeepaliveUnsafe(60, 0) {
+		t.Fatal("tcp_keepalives_idle=60 must be safe")
+	}
+	if KeepaliveUnsafe(0, 1) {
+		t.Fatal("client_connection_check_interval=1 must be safe")
+	}
+}
+
+func TestProbeKeepalive(t *testing.T) {
+	got := keepaliveQuerier{i1: intp(60), i2: intp(0)}
+	idle, check, err := ProbeKeepalive(context.Background(), got)
+	if err != nil {
+		t.Fatalf("ProbeKeepalive: %v", err)
+	}
+	if idle != 60 || check != 0 {
+		t.Fatalf("ProbeKeepalive = (%d, %d); want (60, 0)", idle, check)
+	}
+
+	// Unset values arrive as NULL and must report as 0.
+	got = keepaliveQuerier{}
+	idle, check, err = ProbeKeepalive(context.Background(), got)
+	if err != nil {
+		t.Fatalf("ProbeKeepalive (unset): %v", err)
+	}
+	if idle != 0 || check != 0 {
+		t.Fatalf("unset GUCs = (%d, %d); want (0, 0)", idle, check)
+	}
+}
+
+func TestProbeKeepaliveError(t *testing.T) {
+	want := errors.New("no current_setting on this backend")
+	got := keepaliveQuerier{err: want}
+	_, _, err := ProbeKeepalive(context.Background(), got)
+	if !errors.Is(err, want) {
+		t.Fatalf("err = %v; want probe error", err)
+	}
+}

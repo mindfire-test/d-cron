@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 )
 
 // Row is the subset of *sql.Row used by the elector's probes.
@@ -71,4 +72,59 @@ func PoolCapacity(maxOpen int) error {
 		return ErrSingleConnectionPool
 	}
 	return nil
+}
+
+// The two Postgres GUCs that determine whether a dead or partitioned leader's
+// lock is released in a bounded time (SDS §12 rows 3-4, FR-113).
+const sqlKeepalive = `SELECT NULLIF(current_setting('tcp_keepalives_idle', true), '')::int, ` +
+	`NULLIF(current_setting('client_connection_check_interval', true), '')::int`
+
+// KeepaliveUnsafe reports whether the given settings leave the lock vulnerable
+// to an unbounded hold: with both tcp_keepalives_idle and
+// client_connection_check_interval at 0, a dead or partitioned leader blocks in
+// recv() and the lock is held until the OS-level keepalive expires — hours at
+// Linux defaults.
+func KeepaliveUnsafe(idle, connCheck int) bool {
+	return idle == 0 && connCheck == 0
+}
+
+// ProbeKeepalive reads tcp_keepalives_idle and
+// client_connection_check_interval through q. Unset values report as 0 (their
+// effective default). It is best-effort: the elector logs a WARN but never
+// fails startup on a probe error.
+func ProbeKeepalive(ctx context.Context, q Querier) (idle, connCheck int, err error) {
+	var i1, i2 *int // NULL when unset
+	if err := q.QueryRowContext(ctx, sqlKeepalive).Scan(&i1, &i2); err != nil {
+		return 0, 0, fmt.Errorf("elector: keepalive probe: %w", err)
+	}
+	if i1 != nil {
+		idle = *i1
+	}
+	if i2 != nil {
+		connCheck = *i2
+	}
+	return idle, connCheck, nil
+}
+
+// WarnKeepalive probes the keepalive GUCs and, when both are 0, logs a loud
+// WARN that a dead or partitioned leader will hold the lock for hours with no
+// replica promoted (SDS §12 row 3). It returns true when the configuration is
+// unsafe. A probe error is logged at Debug and treated as unknown, never fatal.
+func WarnKeepalive(ctx context.Context, q Querier, log *slog.Logger) bool {
+	if log == nil {
+		log = slog.Default()
+	}
+	idle, connCheck, err := ProbeKeepalive(ctx, q)
+	if err != nil {
+		log.Debug("elector: keepalive probe unavailable", "err", err)
+		return false
+	}
+	if KeepaliveUnsafe(idle, connCheck) {
+		log.Warn("elector: TCP keepalives are disabled on the lock connection; a dead or partitioned leader will hold the lock for hours and NO replica will be promoted (SDS §12 row 3). Set tcp_keepalives_idle (recommended 60-120s) and client_connection_check_interval, or supply a dedicated connection that sets them.",
+			"tcp_keepalives_idle", idle, "client_connection_check_interval", connCheck)
+		return true
+	}
+	log.Info("elector: TCP keepalives enabled",
+		"tcp_keepalives_idle", idle, "client_connection_check_interval", connCheck)
+	return false
 }

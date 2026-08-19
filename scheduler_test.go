@@ -2,13 +2,20 @@ package dcron
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"database/sql/driver"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/mindfire-test/d-cron/internal/elector"
 )
 
 // schedBackend is a minimal elector.Backend that always promotes its caller to
@@ -43,14 +50,14 @@ func (b *schedBackend) HoldsLock(ctx context.Context, _ int64) (bool, error) {
 	return b.held, nil
 }
 
-func (b *schedBackend) Release(ctx context.Context, _ int64) error {
+func (b *schedBackend) Release(ctx context.Context, _ int64) (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	b.held = false
-	return nil
+	return true, nil
 }
 
 func (b *schedBackend) Close() error { return nil }
@@ -58,6 +65,18 @@ func (b *schedBackend) Close() error { return nil }
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+// fakeDriver/fakeConn let tests open a *sql.DB without a Postgres driver so
+// the session-stability gate is testable in isolation.
+type fakeDriver struct{}
+
+func (fakeDriver) Open(_ string) (driver.Conn, error) { return fakeConn{}, nil }
+
+type fakeConn struct{}
+
+func (fakeConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("fake: no queries") }
+func (fakeConn) Close() error                        { return nil }
+func (fakeConn) Begin() (driver.Tx, error)           { return nil, errors.New("fake: no tx") }
 
 func testCfg() options {
 	cfg := defaultOptions()
@@ -166,7 +185,57 @@ func TestSchedulerInjectsEpochAndIdempotencyKey(t *testing.T) {
 	if epochSeen.Load() == 0 {
 		t.Fatalf("leader epoch was not injected into the job context")
 	}
-	if key, _ := keySeen.Load().(string); key != jobName {
-		t.Fatalf("idempotency key = %q; want %q", key, jobName)
+	key, _ := keySeen.Load().(string)
+	if key == "" || key == jobName {
+		t.Fatalf("idempotency key = %q; want a fire-time-derived key, not the job name", key)
+	}
+	if len(key) != 64 {
+		t.Fatalf("idempotency key = %q; want a 64-char sha256 hex digest", key)
+	}
+}
+
+func TestDeriveIdempotencyKey(t *testing.T) {
+	fireAt := time.Date(2026, 8, 19, 2, 30, 0, 0, time.UTC)
+	want := fmt.Sprintf("d-cron:v1:default:report:%s", fireAt.UTC().Format(time.RFC3339))
+	sum := sha256.Sum256([]byte(want))
+	wantKey := hex.EncodeToString(sum[:])
+
+	if got := deriveIdempotencyKey("default", "report", fireAt); got != wantKey {
+		t.Fatalf("deriveIdempotencyKey = %q; want %q", got, wantKey)
+	}
+	// Identical across replicas for the same fire time (issue #21) and across
+	// different timezone representations of the same instant.
+	ny := time.Date(2026, 8, 18, 22, 30, 0, 0, time.FixedZone("EDT", -4*3600))
+	if got := deriveIdempotencyKey("default", "report", ny); got != wantKey {
+		t.Fatalf("deriveIdempotencyKey must be invariant across timezones: %q != %q", got, wantKey)
+	}
+	if got := deriveIdempotencyKey("other", "report", fireAt); got == wantKey {
+		t.Fatal("different namespaces must yield different keys")
+	}
+}
+
+func TestNewSessionStabilityGate(t *testing.T) {
+	// Register a minimal fake driver so sql.Open/db.Conn succeed; the gate is
+	// then the only behavior under test, not driver plumbing.
+	sql.Register("dcron-test-fake", fakeDriver{})
+	db, err := sql.Open("dcron-test-fake", "unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := New(db); !errors.Is(err, ErrSessionStabilityUnasserted) {
+		t.Fatalf("New without assertion: err = %v; want ErrSessionStabilityUnasserted", err)
+	}
+	if _, err := New(db, WithSessionStableConnection(), WithLogger(discardLogger())); err != nil {
+		t.Fatalf("New with WithSessionStableConnection must pass the gate, got %v", err)
+	}
+}
+
+func TestSchedulerKeyExposed(t *testing.T) {
+	cfg := testCfg()
+	s := newWithBackend(newSchedBackend(), cfg)
+	if got, want := s.Key(), elector.LockKey(cfg.namespace); got != want {
+		t.Fatalf("Key() = %d; want elector.LockKey(%q) = %d", got, cfg.namespace, want)
 	}
 }

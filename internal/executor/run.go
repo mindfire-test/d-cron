@@ -3,12 +3,12 @@ package executor
 import (
 	"context"
 	"errors"
-	"fmt"
 	"runtime"
 	"time"
 )
 
 type attemptResult struct {
+	val   any // panic value when panicked
 	err   error
 	stack []byte
 	panic bool
@@ -17,6 +17,12 @@ type attemptResult struct {
 // Run executes fn, retrying per retry. It recovers panics so a panicking job
 // never crashes the host, honours fn's context for timeout/cancellation, and
 // backs off between retries.
+//
+// Limitation (SDS §5.1 / issue #18): only a panic on the job's own goroutine is
+// recovered and turned into a *PanicError. A panic on a goroutine the job
+// itself spawns cannot be recovered by Go and will terminate the process; the
+// job-authoring guide (#30) requires jobs to recover inside any goroutine they
+// spawn.
 func Run(ctx context.Context, fn Func, retry Retry) Result {
 	r := retry.withDefaults()
 	for attempt := 1; ; attempt++ {
@@ -77,8 +83,11 @@ func runAttempt(ctx context.Context, fn Func) (Outcome, []byte, error) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
+				// Capture the stack inside the deferred func, before the stack
+				// unwinds further: a post-unwind capture loses the panicking
+				// frame (issue #18).
 				ch <- attemptResult{
-					err:   fmt.Errorf("executor: recovered panic: %v", r),
+					val:   r,
 					stack: stackDump(),
 					panic: true,
 				}
@@ -95,7 +104,7 @@ func runAttempt(ctx context.Context, fn Func) (Outcome, []byte, error) {
 	// logged as orphaned. See SDS §7.
 	res := <-ch
 	if res.panic {
-		return OutcomePanicked, res.stack, res.err
+		return OutcomePanicked, res.stack, &PanicError{Value: res.val, Stack: res.stack}
 	}
 	return classify(res.err), nil, res.err
 }

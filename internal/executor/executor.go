@@ -8,6 +8,7 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"time"
@@ -71,13 +72,27 @@ type Retry struct {
 	Retryable func(error) bool
 }
 
-// withDefaults fills in sane defaults so callers may leave fields zero.
+// withDefaults fills in the SDS defaults (issues #19/#20) so a zero-value
+// Retry yields: a 30-minute per-attempt timeout, 5 attempts, 1s base backoff
+// doubling to a 5-minute cap, and jitter enabled. Callers that set a field keep
+// their value; only zero/absent fields are defaulted.
 func (r Retry) withDefaults() Retry {
 	if r.Attempts < 1 {
-		r.Attempts = 1
+		r.Attempts = 5
+	}
+	if r.Backoff <= 0 {
+		r.Backoff = time.Second
 	}
 	if r.Factor <= 0 {
-		r.Factor = 1
+		r.Factor = 2
+	}
+	if r.MaxBackoff <= 0 {
+		r.MaxBackoff = 5 * time.Minute
+	}
+	// Jitter defaults to ON per SDS §5.3 (it cannot be turned off via the zero
+	// value); tests and callers needing deterministic backoff must set it false.
+	if r.Timeout <= 0 {
+		r.Timeout = 30 * time.Minute
 	}
 	if r.Retryable == nil {
 		r.Retryable = func(error) bool { return true }
@@ -110,3 +125,21 @@ type Result struct {
 	Error    error
 	Attempts int
 }
+
+// PanicError is the typed result of a recovered panic. It carries the panic
+// value and the full goroutine stack captured inside the deferred recovery, so
+// a panicking job never crashes the host process and the stack is not lost
+// (SDS §5.1, issue #18). The limitation — a panic on a goroutine the job
+// itself spawned cannot be recovered — is documented on the Run function.
+type PanicError struct {
+	Value any
+	Stack []byte
+}
+
+// Error implements error.
+func (e *PanicError) Error() string {
+	return fmt.Sprintf("executor: recovered panic: %v", e.Value)
+}
+
+// StackTrace returns the goroutine stack captured at panic time.
+func (e *PanicError) StackTrace() []byte { return e.Stack }

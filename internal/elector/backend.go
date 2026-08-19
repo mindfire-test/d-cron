@@ -28,8 +28,11 @@ type Backend interface {
 	// It is a read-only pg_locks probe and must NOT acquire the lock:
 	// re-acquiring a re-entrant advisory lock masks a lost lock (SDS §3.5).
 	HoldsLock(ctx context.Context, key int64) (bool, error)
-	// Release frees the advisory lock for key (SDS §3.3).
-	Release(ctx context.Context, key int64) error
+	// Release frees the advisory lock for key (SDS §3.3). The boolean reports
+	// whether the lock was actually held by this session: false means it had
+	// already been released server-side (e.g. backend exit), which the caller
+	// logs rather than treats as fatal (§3.6).
+	Release(ctx context.Context, key int64) (bool, error)
 	// Close closes the underlying dedicated connection.
 	Close() error
 }
@@ -68,13 +71,13 @@ func (b *stdBackend) HoldsLock(ctx context.Context, key int64) (bool, error) {
 }
 
 // Release implements Backend.
-func (b *stdBackend) Release(ctx context.Context, key int64) error {
+func (b *stdBackend) Release(ctx context.Context, key int64) (bool, error) {
 	var released bool
 	err := b.conn.QueryRowContext(ctx, sqlRelease, key).Scan(&released)
 	if err != nil {
-		return fmt.Errorf("elector: release advisory lock: %w", err)
+		return false, fmt.Errorf("elector: release advisory lock: %w", err)
 	}
-	return nil
+	return released, nil
 }
 
 // Close implements Backend.

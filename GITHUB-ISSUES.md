@@ -5,7 +5,7 @@ Covers all four phases. **52 issues.**
 
 Every issue is written to be copy-pasted directly into GitHub: title, labels,
 milestone, dependencies, requirement traceability, and acceptance criteria.
-Issue numbers below (`#1`–`#51`) are *backlog* numbers used for the dependency
+Issue numbers below (`#1`–`#51`) are _backlog_ numbers used for the dependency
 graph — renumber to real GitHub issue numbers once created, or use the
 `gh` bulk-create script in [Appendix C](#appendix-c--bulk-create-with-gh-cli),
 which preserves ordering so backlog numbers match issue numbers on a fresh repo.
@@ -32,27 +32,27 @@ Create these before importing issues.
 
 ### Labels
 
-| Label | Colour | Meaning |
-| :--- | :--- | :--- |
-| `area/elector` | `#1D76DB` | Leader election, advisory locks, connection handling |
-| `area/clock` | `#0E8A16` | Schedules, cron parsing, the fire loop |
-| `area/executor` | `#5319E7` | Job invocation, panic, timeout, retry |
-| `area/store` | `#B60205` | Persistence, migrations, history |
-| `area/api` | `#FBCA04` | Public surface, options, errors |
-| `area/observability` | `#006B75` | Logs, metrics, UI, tracing |
-| `area/testing` | `#BFD4F2` | Test harness, integration, soak |
-| `area/docs` | `#C5DEF5` | README, guides, examples |
-| `phase/0` … `phase/4` | `#EEEEEE` | Roadmap phase |
-| `type/feature` | `#A2EEEF` | New capability |
-| `type/bug` | `#D73A4A` | Defect |
-| `type/chore` | `#FEF2C0` | Tooling, CI, housekeeping |
-| `type/spike` | `#D4C5F9` | Time-boxed investigation |
-| `priority/P0` | `#B60205` | Blocks the phase |
-| `priority/P1` | `#D93F0B` | Required for the phase |
-| `priority/P2` | `#FBCA04` | Desirable |
-| `safety-critical` | `#000000` | **Correctness of distributed guarantees depends on this.** Requires two reviewers |
-| `good-first-issue` | `#7057FF` | Self-contained, low context needed |
-| `help-wanted` | `#008672` | Open to outside contributors |
+| Label                 | Colour    | Meaning                                                                           |
+| :-------------------- | :-------- | :-------------------------------------------------------------------------------- |
+| `area/elector`        | `#1D76DB` | Leader election, advisory locks, connection handling                              |
+| `area/clock`          | `#0E8A16` | Schedules, cron parsing, the fire loop                                            |
+| `area/executor`       | `#5319E7` | Job invocation, panic, timeout, retry                                             |
+| `area/store`          | `#B60205` | Persistence, migrations, history                                                  |
+| `area/api`            | `#FBCA04` | Public surface, options, errors                                                   |
+| `area/observability`  | `#006B75` | Logs, metrics, UI, tracing                                                        |
+| `area/testing`        | `#BFD4F2` | Test harness, integration, soak                                                   |
+| `area/docs`           | `#C5DEF5` | README, guides, examples                                                          |
+| `phase/0` … `phase/4` | `#EEEEEE` | Roadmap phase                                                                     |
+| `type/feature`        | `#A2EEEF` | New capability                                                                    |
+| `type/bug`            | `#D73A4A` | Defect                                                                            |
+| `type/chore`          | `#FEF2C0` | Tooling, CI, housekeeping                                                         |
+| `type/spike`          | `#D4C5F9` | Time-boxed investigation                                                          |
+| `priority/P0`         | `#B60205` | Blocks the phase                                                                  |
+| `priority/P1`         | `#D93F0B` | Required for the phase                                                            |
+| `priority/P2`         | `#FBCA04` | Desirable                                                                         |
+| `safety-critical`     | `#000000` | **Correctness of distributed guarantees depends on this.** Requires two reviewers |
+| `good-first-issue`    | `#7057FF` | Self-contained, low context needed                                                |
+| `help-wanted`         | `#008672` | Open to outside contributors                                                      |
 
 > **On `safety-critical`:** eleven issues carry it. These are the ones where a
 > plausible-looking implementation silently breaks the product's core promise.
@@ -60,13 +60,13 @@ Create these before importing issues.
 
 ### Milestones
 
-| Milestone | Definition of done |
-| :--- | :--- |
-| `Phase 0 — Bootstrap` | Repo builds, CI green, name settled |
-| `Phase 1 — MVP` | All of SRS AC-01…AC-10 pass; publishable as v0.1.0 |
-| `Phase 2 — Observability` | Metrics, UI, history, health probe |
-| `Phase 3 — Correctness hardening` | Epoch fencing end-to-end, policies |
-| `Phase 4 — Extensibility` | Pluggable backend, runtime job management |
+| Milestone                         | Definition of done                                 |
+| :-------------------------------- | :------------------------------------------------- |
+| `Phase 0 — Bootstrap`             | Repo builds, CI green, name settled                |
+| `Phase 1 — MVP`                   | All of SRS AC-01…AC-10 pass; publishable as v0.1.0 |
+| `Phase 2 — Observability`         | Metrics, UI, history, health probe                 |
+| `Phase 3 — Correctness hardening` | Epoch fencing end-to-end, policies                 |
+| `Phase 4 — Extensibility`         | Pluggable backend, runtime job management          |
 
 ---
 
@@ -193,7 +193,7 @@ Required by #12 and #40.
 
 This harness exists because the hazards were empirically confirmed during design
 review against PgBouncer 1.22: a lock acquired through the pooler stayed held
-after its client disconnected, and a second client acquired the *same* key
+after its client disconnected, and a second client acquired the _same_ key
 successfully. See SDS §3.4.
 
 ---
@@ -254,7 +254,7 @@ entire duration of leadership.
 - [ ] `pg_try_advisory_lock` (non-blocking, never `pg_advisory_lock`)
 - [ ] Reserved `*sql.Conn` held for the leadership term
 - [ ] Failed acquisition does **not** block application startup (FR-102)
-- [ ] Doc comment states the reserved connection comes *from* the caller's pool
+- [ ] Doc comment states the reserved connection comes _from_ the caller's pool
       and reduces its capacity by one (FR-508)
 - [ ] Test: N electors against one database, exactly one acquires
 
@@ -371,7 +371,7 @@ mandatory precisely so nobody reintroduces this.
 **Notes**
 
 Don't repeat the wrong rationale from the SDS's first draft. Explicit unlock is
-*not* needed because socket teardown is slow — on process exit the kernel sends
+_not_ needed because socket teardown is slow — on process exit the kernel sends
 FIN immediately and the backend exits in milliseconds. The real reasons: it
 releases the lock before draining (measurably shortening the gap), it works when
 `Stop()` is called without exiting, and it doesn't depend on driver/OS behaviour
@@ -455,7 +455,7 @@ regression test exists to stop a future contributor "improving" this back.
 **Notes**
 
 ⚠️ This is the weakest link in the whole design and it must not be soft-pedalled.
-PostgreSQL releases a session advisory lock when the *backend process* exits. If
+PostgreSQL releases a session advisory lock when the _backend process_ exits. If
 the leader's host dies or is partitioned, the backend blocks in `recv()` and
 never learns. Verified PostgreSQL 16 defaults:
 
@@ -574,7 +574,7 @@ transitions produce genuinely confusing skipped and doubled fire times.
 - [ ] `debug.Stack()` captured **inside** the deferred func
 - [ ] Panic converted to a typed `*PanicError` carrying value and stack
 - [ ] Logged with full stack, recorded as a failed execution
-- [ ] Doc comment states the limitation: a panic on a goroutine the *job* spawns
+- [ ] Doc comment states the limitation: a panic on a goroutine the _job_ spawns
       cannot be recovered and will terminate the process
 - [ ] Test: panicking job does not kill the test process; stack contains the
       panicking frame
@@ -823,7 +823,7 @@ self-explanatory.
       transaction pooling; orphaned lock survives client disconnect; two clients
       acquire the same key
 - [ ] **AC-02b**: with keepalives disabled, a partitioned leader's lock is
-      *not* released promptly — asserting the limitation so it can't be
+      _not_ released promptly — asserting the limitation so it can't be
       quietly overstated later
 - [ ] **AC-09**: zero tables exist in any schema after a full Phase 1 lifecycle
 
@@ -879,7 +879,7 @@ honest limitations, not the pitch.
 **Acceptance criteria**
 
 - [ ] Correctness model stated plainly: at-most-once normally, at-least-once
-      under failure *only with catch-up enabled*, **never "exactly-once"**
+      under failure _only with catch-up enabled_, **never "exactly-once"**
 - [ ] Full failure-mode table (SDS §12), including host death, partition, and
       the goroutine-panic limitation
 - [ ] **Required keepalive settings in the quickstart**, not an appendix
@@ -1039,7 +1039,7 @@ increase(dcron_fenced_writes_total[5m]) > 0
 **Acceptance criteria**
 
 - [ ] `LeadershipState` enum: `LeadershipUnknown | LeadershipStandby |
-      LeadershipLeader`
+LeadershipLeader`
 - [ ] `Leadership() LeadershipState` — **not** an `IsLeader() bool`
 - [ ] `HealthCheck(ctx) error` reporting coordination-backend reachability,
       suitable as a Kubernetes probe
@@ -1164,14 +1164,14 @@ Verified to execute correctly on PostgreSQL 16.
 
 - [ ] Epoch injected into every job context; `dcron.Epoch(ctx) int64` accessor
 - [ ] **Both** the opening `status = running` insert and the terminal update are
-      *guarded*, not merely stamped
+      _guarded_, not merely stamped
 - [ ] Zero rows affected ⇒ log `WARN`, increment `dcron_fenced_writes_total`,
       discard
 - [ ] Test: a write from a demoted leader affects zero rows
 
 **Notes**
 
-FR-310 says *all* `d-cron`-owned writes. An earlier design guarded only the
+FR-310 says _all_ `d-cron`-owned writes. An earlier design guarded only the
 update, leaving the insert to carry an unvalidated epoch. Use the
 `INSERT ... SELECT ... WHERE EXISTS (SELECT 1 FROM dcron.leader_epoch WHERE
 namespace = $1 AND epoch = $5)` form from SDS §6.2.
@@ -1201,8 +1201,8 @@ func Fence(ctx context.Context, tx Querier) error
 **Notes**
 
 ⚠️ **The lock mode is load-bearing.** A plain `SELECT epoch` has a TOCTOU hole:
-under the default READ COMMITTED, a promotion that commits *after* our read but
-*before* the user's `tx.Commit()` is invisible, and the zombie's charge commits
+under the default READ COMMITTED, a promotion that commits _after_ our read but
+_before_ the user's `tx.Commit()` is invisible, and the zombie's charge commits
 unfenced. `FOR SHARE` makes the new leader's epoch `UPDATE` conflict.
 
 `FOR SHARE` rather than `FOR UPDATE` so concurrent fenced jobs under the same
@@ -1305,7 +1305,7 @@ store rather than shipping with the others.
 **Traces:** §6.2, §12 row 6
 
 Deliberately synthesise the split-brain window with `SIGSTOP` and assert the
-*correct*, weaker guarantees.
+_correct_, weaker guarantees.
 
 **Acceptance criteria**
 
@@ -1314,7 +1314,7 @@ Deliberately synthesise the split-brain window with `SIGSTOP` and assert the
 - [ ] At most one **committed** `d-cron` execution record per fire time
 - [ ] `dcron_fenced_writes_total` increments (proving fencing engaged)
 - [ ] The zombie's `Fence()`d transaction aborted
-- [ ] Duplicate *invocations* recorded as **expected behaviour, not failure**
+- [ ] Duplicate _invocations_ recorded as **expected behaviour, not failure**
 
 **Notes**
 
@@ -1446,22 +1446,22 @@ early; everything safety-critical is blocked behind them.
 
 Every FR and NFR in the SRS maps to at least one issue.
 
-| Requirement group | Issues |
-| :--- | :--- |
-| FR-101…FR-108 (election) | #6, #7, #8, #9, #11, #12 |
-| FR-109…FR-114 (election, cont.) | #8, #10, #14, #13, #37, #41, #49 |
-| FR-201…FR-212 (scheduling) | #15, #16, #17, #23, #33, #46, #50 |
-| FR-301…FR-315 (execution safety) | #18, #19, #20, #21, #22, #42, #43, #44, #45 |
-| FR-401…FR-411 (observability) | #25, #36, #37, #38, #39, #47 |
-| FR-501…FR-508 (persistence) | #7, #24, #34, #35, #41 |
-| FR-601…FR-605 (API) | #23, #24, #26, #27, #51 |
-| NFR-101…NFR-106 (performance) | #9, #17, #19, #29 |
-| NFR-201…NFR-204 (reliability) | #28, #29, #30 |
-| NFR-301…NFR-304 (usability) | #23, #26, #30, #31, #32 |
-| NFR-401…NFR-405 (maintainability) | #2, #3, #15, #24, #36, #40, #47 |
-| NFR-501…NFR-504 (security) | #2, #3, #25, #38, #51 |
-| AC-01…AC-10 (acceptance) | #27, #28, #29 |
-| C-01, C-06, C-07 (constraints) | #5, #10, #12, #14, #28 |
+| Requirement group                 | Issues                                      |
+| :-------------------------------- | :------------------------------------------ |
+| FR-101…FR-108 (election)          | #6, #7, #8, #9, #11, #12                    |
+| FR-109…FR-114 (election, cont.)   | #8, #10, #14, #13, #37, #41, #49            |
+| FR-201…FR-212 (scheduling)        | #15, #16, #17, #23, #33, #46, #50           |
+| FR-301…FR-315 (execution safety)  | #18, #19, #20, #21, #22, #42, #43, #44, #45 |
+| FR-401…FR-411 (observability)     | #25, #36, #37, #38, #39, #47                |
+| FR-501…FR-508 (persistence)       | #7, #24, #34, #35, #41                      |
+| FR-601…FR-605 (API)               | #23, #24, #26, #27, #51                     |
+| NFR-101…NFR-106 (performance)     | #9, #17, #19, #29                           |
+| NFR-201…NFR-204 (reliability)     | #28, #29, #30                               |
+| NFR-301…NFR-304 (usability)       | #23, #26, #30, #31, #32                     |
+| NFR-401…NFR-405 (maintainability) | #2, #3, #15, #24, #36, #40, #47             |
+| NFR-501…NFR-504 (security)        | #2, #3, #25, #38, #51                       |
+| AC-01…AC-10 (acceptance)          | #27, #28, #29                               |
+| C-01, C-06, C-07 (constraints)    | #5, #10, #12, #14, #28                      |
 
 Verified programmatically: **all 65 FRs, all 23 NFRs and all 11 ACs defined in
 the SRS are cited by at least one issue**, no issue cites a requirement ID that
@@ -1553,4 +1553,4 @@ create` calls are not idempotent, and re-running duplicates every issue.
 
 ---
 
-*Generated from DCRON-SRS-001 v1.0 and DCRON-SDS-001 v1.0, 2026-08-13.*
+_Generated from DCRON-SRS-001 v1.0 and DCRON-SDS-001 v1.0, 2026-08-13._

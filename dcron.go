@@ -40,17 +40,37 @@ type Scheduler struct {
 	runCtx  context.Context
 	cancel  context.CancelFunc
 	done    chan struct{}
+
+	// termCtx is the per-leadership-term context under which in-flight jobs
+	// run. It is canceled when leadership is lost (FR-307: retries must stop,
+	// a demoted leader must not keep working a fire time) and derives from
+	// runCtx so shutdown cancels it too. Refreshed on each promotion.
+	// Accessed only from the runLoop goroutine.
+	termCtx    context.Context
+	termCancel context.CancelFunc
 }
 
 // New creates a Scheduler bound to db.
 //
 // Options are applied in order on top of the defaults. New runs the Phase-1
-// safety gates before returning: it refuses a pool whose MaxOpenConnections is
-// 1 (FR-112), and -- unless WithDedicatedLockConn or WithSessionStableConnection
-// was set -- it borrows a dedicated connection and probes session stability,
-// refusing a transaction-mode pooler (FR-108, SDS §3.4). The dedicated
-// connection is held for the life of the scheduler and carries the advisory
-// lock.
+// safety gates before returning:
+//
+//   - Session stability (SDS §3.4, issue #12): it refuses to start unless the
+//     operator asserted session stability (WithSessionStableConnection) or
+//     supplied a dedicated lock connection (WithDedicatedLockConn /
+//     WithDedicatedLockDSN). There is deliberately NO runtime probe: measured
+//     against PgBouncer, the pg_backend_pid() probe returns the same PID every
+//     time at startup and would be a reliable false negative in exactly the
+//     dangerous case.
+//   - Pool capacity (FR-112, issue #13): when borrowing the lock connection from
+//     the caller's pool, a pool with MaxOpenConnections == 1 deadlocks election
+//     and is refused.
+//   - TCP keepalives (issue #14): a best-effort preflight WARNs when both
+//     tcp_keepalives_idle and client_connection_check_interval are 0, because a
+//     dead or partitioned leader then holds the lock for hours.
+//
+// The dedicated connection is held for the life of the scheduler and carries
+// the advisory lock. The resolved lock key is logged at INFO (issue #6).
 func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 	if db == nil {
 		return nil, ErrNilDB
@@ -59,41 +79,37 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	if err := elector.PoolCapacity(db.Stats().MaxOpenConnections); err != nil {
-		return nil, err
+	if !cfg.sessionStable && cfg.lockConn == nil {
+		return nil, ErrSessionStabilityUnasserted
+	}
+	if cfg.lockConn == nil {
+		// Borrowing from the caller's pool: it must be able to spare one
+		// connection for the leadership term (issue #13).
+		if err := elector.PoolCapacity(db.Stats().MaxOpenConnections); err != nil {
+			return nil, err
+		}
 	}
 	conn, err := lockConnection(cfg, db)
 	if err != nil {
 		return nil, err
 	}
+	// Best-effort keepalive preflight; never fails startup (issue #14).
+	elector.WarnKeepalive(context.Background(), elector.NewSQLConn(conn), cfg.logger)
+
+	cfg.logger.Info("dcron: scheduler constructed",
+		"namespace", cfg.namespace, "key", elector.LockKey(cfg.namespace), "instance", cfg.instance)
 	return newWithBackend(elector.NewStdBackend(conn), cfg), nil
 }
 
 // lockConnection obtains the dedicated, session-stable connection used for the
-// advisory lock: a caller-supplied connection (WithDedicatedLockConn), or a
-// dedicated conn borrowed from db, probed for session stability unless the
-// operator asserted it (WithSessionStableConnection).
+// advisory lock: a caller-supplied connection (WithDedicatedLockConn /
+// WithDedicatedLockDSN), or a dedicated conn borrowed from the caller's pool
+// after the session-stability and pool-capacity gates have passed.
 func lockConnection(cfg options, db *sql.DB) (*sql.Conn, error) {
 	if cfg.lockConn != nil {
 		return cfg.lockConn(context.Background())
 	}
-	conn, err := db.Conn(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	if cfg.sessionStable {
-		return conn, nil
-	}
-	stable, err := elector.ProbeSessionStable(context.Background(), elector.NewSQLConn(conn))
-	if err != nil {
-		conn.Close()
-		return nil, err
-	}
-	if !stable {
-		conn.Close()
-		return nil, elector.ErrPoolerSessionInstability
-	}
-	return conn, nil
+	return db.Conn(context.Background())
 }
 
 // newWithBackend builds a Scheduler around an injected Backend, bypassing the
@@ -103,10 +119,15 @@ func newWithBackend(backend elector.Backend, cfg options) *Scheduler {
 		opts:   cfg,
 		clk:    &clock.Queue{},
 		jobs:   make(map[string]*Job),
-		leader: elector.New(cfg.namespace, backend, cfg.logger),
+		leader: elector.New(cfg.namespace, cfg.instance, backend, cfg.logger),
 		done:   make(chan struct{}),
 	}
 }
+
+// Key returns the resolved advisory-lock key for this scheduler's namespace
+// (issue #6). Two schedulers in the same database sharing a key contend for
+// one lock; use distinct namespaces per application.
+func (s *Scheduler) Key() int64 { return s.leader.Key() }
 
 // Add registers a job. name must be unique, spec must be a valid schedule (see
 // clock.Parse), and fn must not be nil. Jobs must be added before Start.
@@ -147,15 +168,20 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	s.started = true
 	s.runCtx, s.cancel = context.WithCancel(ctx)
-	s.group = executor.NewGroup(s.runCtx)
+	s.group = executor.NewGroup()
+	// Until the first promotion no job fires; termCtx is refreshed on promotion
+	// (runLoop) and canceled on demotion to abort in-flight work (FR-307).
+	s.termCtx = s.runCtx
+	s.termCancel = func() {}
 	s.done = make(chan struct{})
 	s.mu.Unlock()
 	go s.runLoop()
 	return nil
 }
 
-// Stop halts the poll loop, drains in-flight jobs (bounded by ctx), and
-// releases the advisory lock. It is safe to call once.
+// Stop halts the poll loop, releases the advisory lock, drains in-flight jobs
+// (bounded by ctx), and closes the dedicated connection. Ordering per SDS §3.6
+// and issue #22: unlock → drain → close. It is safe to call once.
 func (s *Scheduler) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	if !s.started {
@@ -166,14 +192,16 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 	cancel := s.cancel
 	s.mu.Unlock()
 
-	cancel()
-	<-s.done
+	cancel() // stop the poll loop (no new fires)
+	<-s.done // the runLoop has exited
 
 	var firstErr error
-	if err := s.group.Wait(ctx); err != nil {
+	// Unlock FIRST so a standby can promote while we drain (issue #11/#22).
+	if err := s.leader.Release(ctx); err != nil && firstErr == nil {
 		firstErr = err
 	}
-	if err := s.leader.Release(ctx); err != nil && firstErr == nil {
+	// Then drain in-flight jobs, bounded by the caller's deadline.
+	if err := s.group.Wait(ctx); err != nil && firstErr == nil {
 		firstErr = err
 	}
 	if err := s.leader.Close(); err != nil && firstErr == nil {
