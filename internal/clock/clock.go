@@ -27,30 +27,67 @@ type Schedule interface {
 
 // Parse interprets a schedule expression.
 //
-// Two forms are supported:
+// Supported forms:
 //
 //   - "@every <duration>", e.g. "@every 3s" or "@every 10m".
 //   - A 5-field cron expression: minute hour day-of-month month day-of-week,
 //     e.g. "0 2 * * *".
+//   - Descriptors: @yearly (alias @annually), @monthly, @weekly, @daily
+//     (alias @midnight), @hourly.
 //
-// loc is used to interpret cron field boundaries; time.UTC is substituted
-// when nil.
+// Month and day-of-week fields accept names (JAN..DEC, SUN..SAT,
+// case-insensitive, full or 3-letter). loc is used to interpret cron field
+// boundaries; time.UTC is substituted when nil. 6-field expressions with a
+// leading seconds field are parsed by ParseSeconds (issue #15, FR-212).
 func Parse(expr string, loc *time.Location) (Schedule, error) {
 	if loc == nil {
 		loc = time.UTC
 	}
-	switch {
-	case strings.HasPrefix(expr, "@every "):
+	if strings.HasPrefix(expr, "@every ") {
 		d, err := time.ParseDuration(strings.TrimSpace(strings.TrimPrefix(expr, "@every ")))
 		if err != nil || d <= 0 {
 			return nil, ErrInvalidSchedule
 		}
 		return IntervalSchedule{d: d, loc: loc}, nil
-	case expr == "@every":
-		return nil, ErrInvalidSchedule
-	default:
-		return parseCron(expr, loc)
 	}
+	if expr == "@every" {
+		return nil, ErrInvalidSchedule
+	}
+	if strings.HasPrefix(expr, "@") {
+		expanded, ok := descriptors[expr]
+		if !ok {
+			return nil, ErrInvalidSchedule
+		}
+		expr = expanded
+	}
+	return parseCron(expr, loc)
+}
+
+// ParseSeconds interprets a schedule expression with a leading seconds field
+// (6-field cron: second minute hour day-of-month month day-of-week). The
+// "@every", descriptor, and aliases behave exactly as in Parse. The seconds
+// field accepts 0-59, lists, ranges, and steps (issue #15, FR-212).
+func ParseSeconds(expr string, loc *time.Location) (Schedule, error) {
+	if loc == nil {
+		loc = time.UTC
+	}
+	if strings.HasPrefix(expr, "@") {
+		return Parse(expr, loc)
+	}
+	return parseCronSeconds(expr, loc)
+}
+
+// descriptors maps the named schedules to their equivalent 5-field cron
+// expressions (issue #15). @yearly and @annually, @daily and @midnight are
+// aliases.
+var descriptors = map[string]string{
+	"@yearly":   "0 0 1 1 *",
+	"@annually": "0 0 1 1 *",
+	"@monthly":  "0 0 1 * *",
+	"@weekly":   "0 0 * * 0",
+	"@daily":    "0 0 * * *",
+	"@midnight": "0 0 * * *",
+	"@hourly":   "0 * * * *",
 }
 
 // IntervalSchedule fires at a fixed duration.
@@ -76,21 +113,39 @@ const (
 	maxMonth  = 12
 	minDOW    = 0
 	maxDOW    = 6
+	minSecond = 0
+	maxSecond = 59
 )
 
-// CronSchedule is a 5-field vixie-style cron schedule
-// (minute hour dom month dow).
+// CronSchedule is a vixie-style cron schedule: 5 fields by default
+// (minute hour dom month dow), or 6 with a leading seconds field when parsed
+// by ParseSeconds (issue #15, FR-212).
 type CronSchedule struct {
 	minute, hour, dom, month, dow uint64
+	sec                           uint64
+	withSec                       bool
 	loc                           *time.Location
 }
 
-// Next implements Schedule by scanning minute-by-minute. A valid cron
-// expression always matches within a year, so the 400-day window cannot
-// overflow in practice.
+// searchWindow is how far Next may scan (in days): one full leap cycle, so a
+// schedule like "0 0 29 2 *" always finds its next February 29.
+const searchWindowDays = 1464
+
+// Next implements Schedule by scanning field-by-field. A valid cron expression
+// always matches within a leap cycle, so the bounded window cannot overflow.
 func (c CronSchedule) Next(t time.Time) time.Time {
+	if c.withSec {
+		cur := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, c.loc).Add(time.Second)
+		for i := 0; i < searchWindowDays*24*3600; i++ {
+			if c.matches(cur) {
+				return cur
+			}
+			cur = cur.Add(time.Second)
+		}
+		return time.Time{}
+	}
 	cur := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, c.loc).Add(time.Minute)
-	for i := 0; i < 576000; i++ {
+	for i := 0; i < searchWindowDays*24*60; i++ {
 		if c.matches(cur) {
 			return cur
 		}
@@ -100,6 +155,9 @@ func (c CronSchedule) Next(t time.Time) time.Time {
 }
 
 func (c CronSchedule) matches(t time.Time) bool {
+	if c.withSec && c.sec&(1<<uint(t.Second())) == 0 {
+		return false
+	}
 	if c.month&(1<<uint(t.Month())) == 0 {
 		return false
 	}
@@ -118,29 +176,30 @@ func (c CronSchedule) matches(t time.Time) bool {
 	return true
 }
 
-// parseCron parses a 5-field vixie-style cron expression.
+// parseCron parses a 5-field vixie-style cron expression (minute hour dom
+// month dow). Month and day-of-week fields accept names (issue #15).
 func parseCron(expr string, loc *time.Location) (CronSchedule, error) {
 	fields := strings.Fields(expr)
 	if len(fields) != 5 {
 		return CronSchedule{}, ErrInvalidSchedule
 	}
-	minute, err := parseField(fields[0], minMinute, maxMinute, nil)
+	minute, err := parseField(fields[0], minMinute, maxMinute, nil, nil)
 	if err != nil {
 		return CronSchedule{}, err
 	}
-	hour, err := parseField(fields[1], minHour, maxHour, nil)
+	hour, err := parseField(fields[1], minHour, maxHour, nil, nil)
 	if err != nil {
 		return CronSchedule{}, err
 	}
-	dom, err := parseField(fields[2], minDOM, maxDOM, nil)
+	dom, err := parseField(fields[2], minDOM, maxDOM, nil, nil)
 	if err != nil {
 		return CronSchedule{}, err
 	}
-	month, err := parseField(fields[3], minMonth, maxMonth, nil)
+	month, err := parseField(fields[3], minMonth, maxMonth, monthNames, nil)
 	if err != nil {
 		return CronSchedule{}, err
 	}
-	dow, err := parseField(fields[4], minDOW, maxDOW, normalizeDOW)
+	dow, err := parseField(fields[4], minDOW, maxDOW, dowNames, normalizeDOW)
 	if err != nil {
 		return CronSchedule{}, err
 	}
@@ -151,6 +210,50 @@ func parseCron(expr string, loc *time.Location) (CronSchedule, error) {
 		month:  month,
 		dow:    dow,
 		loc:    loc,
+	}, nil
+}
+
+// parseCronSeconds parses a 6-field vixie-style cron expression (second minute
+// hour dom month dow). The seconds field is numeric only; month and day-of-week
+// still accept names (issue #15, FR-212).
+func parseCronSeconds(expr string, loc *time.Location) (CronSchedule, error) {
+	fields := strings.Fields(expr)
+	if len(fields) != 6 {
+		return CronSchedule{}, ErrInvalidSchedule
+	}
+	sec, err := parseField(fields[0], minSecond, maxSecond, nil, nil)
+	if err != nil {
+		return CronSchedule{}, err
+	}
+	minute, err := parseField(fields[1], minMinute, maxMinute, nil, nil)
+	if err != nil {
+		return CronSchedule{}, err
+	}
+	hour, err := parseField(fields[2], minHour, maxHour, nil, nil)
+	if err != nil {
+		return CronSchedule{}, err
+	}
+	dom, err := parseField(fields[3], minDOM, maxDOM, nil, nil)
+	if err != nil {
+		return CronSchedule{}, err
+	}
+	month, err := parseField(fields[4], minMonth, maxMonth, monthNames, nil)
+	if err != nil {
+		return CronSchedule{}, err
+	}
+	dow, err := parseField(fields[5], minDOW, maxDOW, dowNames, normalizeDOW)
+	if err != nil {
+		return CronSchedule{}, err
+	}
+	return CronSchedule{
+		sec:     sec,
+		minute:  minute,
+		hour:    hour,
+		dom:     dom,
+		month:   month,
+		dow:     dow,
+		withSec: true,
+		loc:     loc,
 	}, nil
 }
 

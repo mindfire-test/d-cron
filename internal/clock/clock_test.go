@@ -10,6 +10,10 @@ func ts(y, mo, d, h, mi int) time.Time {
 	return time.Date(y, time.Month(mo), d, h, mi, 0, 0, time.UTC)
 }
 
+func tss(y, mo, d, h, mi, s int) time.Time {
+	return time.Date(y, time.Month(mo), d, h, mi, s, 0, time.UTC)
+}
+
 func TestParseInvalid(t *testing.T) {
 	t.Parallel()
 	invalid := []string{
@@ -23,6 +27,16 @@ func TestParseInvalid(t *testing.T) {
 	}
 }
 
+func TestParseInvalidSeconds(t *testing.T) {
+	t.Parallel()
+	// 5-field expressions are rejected by the 6-field parser.
+	for _, expr := range []string{"0 0 * * *", "* * *", "0 0 0 * * * *"} {
+		if _, err := ParseSeconds(expr, time.UTC); err == nil {
+			t.Errorf("ParseSeconds(%q): expected an error", expr)
+		}
+	}
+}
+
 func TestCronNext(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -30,14 +44,14 @@ func TestCronNext(t *testing.T) {
 		from time.Time
 		want time.Time
 	}{
-		{"0 2 * * *", ts(2024, 1, 1, 0, 0), ts(2024, 1, 1, 2, 0)},          // daily 02:00
-		{"*/5 * * * *", ts(2024, 1, 1, 0, 0), ts(2024, 1, 1, 0, 5)},        // every 5 min
-		{"0 9-17 * * 1-5", ts(2024, 1, 1, 9, 0), ts(2024, 1, 1, 10, 0)},    // weekdays 09-17, Mon
-		{"0 0 1 1 *", ts(2024, 1, 2, 0, 0), ts(2025, 1, 1, 0, 0)},          // yearly
-		{"30 1 * * 0", ts(2024, 1, 1, 0, 0), ts(2024, 1, 7, 1, 30)},        // next Sunday 01:30
-		{"0 0 * * 1-5", ts(2024, 1, 5, 23, 59), ts(2024, 1, 8, 0, 0)},      // Mon-Fri, skip weekend
-		{"*/15 8-17 * * 1-5", ts(2024, 1, 1, 7, 59), ts(2024, 1, 1, 8, 0)}, // 15m during 08-17 weekdays
-		{"5/10 * * * *", ts(2024, 1, 1, 0, 0), ts(2024, 1, 1, 0, 5)},       // 5,15,25..35..55
+		{"0 2 * * *", ts(2024, 1, 1, 0, 0), ts(2024, 1, 1, 2, 0)},
+		{"*/5 * * * *", ts(2024, 1, 1, 0, 0), ts(2024, 1, 1, 0, 5)},
+		{"0 9-17 * * 1-5", ts(2024, 1, 1, 9, 0), ts(2024, 1, 1, 10, 0)},
+		{"0 0 1 1 *", ts(2024, 1, 2, 0, 0), ts(2025, 1, 1, 0, 0)},
+		{"30 1 * * 0", ts(2024, 1, 1, 0, 0), ts(2024, 1, 7, 1, 30)},
+		{"0 0 * * 1-5", ts(2024, 1, 5, 23, 59), ts(2024, 1, 8, 0, 0)},
+		{"*/15 8-17 * * 1-5", ts(2024, 1, 1, 7, 59), ts(2024, 1, 1, 8, 0)},
+		{"5/10 * * * *", ts(2024, 1, 1, 0, 0), ts(2024, 1, 1, 0, 5)},
 	}
 	for _, tc := range cases {
 		s, err := Parse(tc.expr, time.UTC)
@@ -97,4 +111,185 @@ func TestQueueNextDue(t *testing.T) {
 	if q.Len() != 1 || q.peek().Name != "c" {
 		t.Errorf("remaining queue is wrong: len=%d name=%q", q.Len(), q.peek().Name)
 	}
+}
+
+func TestParseDescriptors(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"@yearly":   "0 0 1 1 *",
+		"@annually": "0 0 1 1 *",
+		"@monthly":  "0 0 1 * *",
+		"@weekly":   "0 0 * * 0",
+		"@daily":    "0 0 * * *",
+		"@midnight": "0 0 * * *",
+		"@hourly":   "0 * * * *",
+	}
+	from := ts(2024, 1, 1, 0, 0)
+	for desc, expr := range cases {
+		s1, err := Parse(desc, time.UTC)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", desc, err)
+		}
+		s2, err := Parse(expr, time.UTC)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", expr, err)
+		}
+		if !s1.Next(from).Equal(s2.Next(from)) {
+			t.Errorf("%q and %q fire at different times", desc, expr)
+		}
+	}
+	if _, err := Parse("@bogus", time.UTC); err == nil {
+		t.Error(`expected error for "@bogus"`)
+	}
+}
+
+func TestParseNames(t *testing.T) {
+	t.Parallel()
+	for _, expr := range []string{
+		"0 0 1 jan *",
+		"0 0 1 JAN *",
+		"0 0 1 january *",
+		"0 0 1 Jan *",
+		"30 9 * * MON-FRI",
+		"0 12 * * mon",
+		"0 0 * * Sun",
+	} {
+		if _, err := Parse(expr, time.UTC); err != nil {
+			t.Errorf("Parse(%q): %v", expr, err)
+		}
+	}
+	for name, num := range map[string]string{
+		"0 0 1 jan *":      "0 0 1 1 *",
+		"0 0 * * mon":      "0 0 * * 1",
+		"30 9 * * MON-FRI": "30 9 * * 1-5",
+	} {
+		from := ts(2024, 1, 1, 0, 0)
+		s1, err := Parse(name, time.UTC)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", name, err)
+		}
+		s2, err := Parse(num, time.UTC)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", num, err)
+		}
+		if !s1.Next(from).Equal(s2.Next(from)) {
+			t.Errorf("%q and %q fire at different times", name, num)
+		}
+	}
+	for _, bad := range []string{"0 0 1 xyz *", "0 0 * * friyay", "0 0 1 * * 8"} {
+		if _, err := Parse(bad, time.UTC); err == nil {
+			t.Errorf("Parse(%q): expected error", bad)
+		}
+	}
+}
+
+func TestParseSeconds(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		expr string
+		from time.Time
+		want time.Time
+	}{
+		{"15 0 2 * * *", tss(2024, 1, 1, 0, 0, 0), tss(2024, 1, 1, 2, 0, 15)},
+		{"*/30 * * * * *", tss(2024, 1, 2, 0, 0, 0), tss(2024, 1, 2, 0, 0, 30)},
+		{"0 0 0 * * *", tss(2024, 1, 1, 0, 0, 0), tss(2024, 1, 2, 0, 0, 0)},
+		{"0 30 2 * jan *", tss(2024, 1, 1, 0, 0, 0), tss(2024, 1, 1, 2, 30, 0)},
+	}
+	for _, tc := range cases {
+		s, err := ParseSeconds(tc.expr, time.UTC)
+		if err != nil {
+			t.Fatalf("ParseSeconds(%q): %v", tc.expr, err)
+		}
+		if got := s.Next(tc.from); !got.Equal(tc.want) {
+			t.Errorf("ParseSeconds(%q).Next(%s) = %s; want %s", tc.expr, tc.from, got, tc.want)
+		}
+	}
+	// descriptors route through ParseSeconds unchanged (no seconds field)
+	d, err := ParseSeconds("@daily", time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Next(ts(2024, 1, 1, 0, 0)); !got.Equal(ts(2024, 1, 2, 0, 0)) {
+		t.Errorf("ParseSeconds(@daily).Next = %s; want 2024-01-02 00:00", got)
+	}
+}
+
+func TestCronNextFeb29(t *testing.T) {
+	t.Parallel()
+	s, err := Parse("0 0 29 2 *", time.UTC) // fires only on Feb 29
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ from, want time.Time }{
+		{ts(2023, 1, 1, 0, 0), ts(2024, 2, 29, 0, 0)},
+		{ts(2024, 3, 1, 0, 0), ts(2028, 2, 29, 0, 0)},
+		{ts(2025, 1, 1, 0, 0), ts(2028, 2, 29, 0, 0)},
+	}
+	for _, c := range cases {
+		if got := s.Next(c.from); !got.Equal(c.want) {
+			t.Errorf("Next(%s) = %s; want %s", c.from, got, c.want)
+		}
+	}
+}
+
+func TestCronNextDST(t *testing.T) {
+	t.Parallel()
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skipf("no tzdata available: %v", err)
+	}
+	mar10 := time.Date(2024, 3, 10, 0, 0, 0, 0, loc)
+	skipped, _ := Parse("0 2 * * *", loc)
+	if got := skipped.Next(mar10); !got.Equal(time.Date(2024, 3, 11, 2, 0, 0, 0, loc)) {
+		t.Errorf("skipped 02:00 on spring-forward: Next = %s; want 2024-03-11 02:00", got)
+	}
+	exists, _ := Parse("0 3 * * *", loc)
+	if got := exists.Next(mar10); !got.Equal(time.Date(2024, 3, 10, 3, 0, 0, 0, loc)) {
+		t.Errorf("03:00 on spring-forward day: Next = %s; want 2024-03-10 03:00", got)
+	}
+	nov02 := time.Date(2024, 11, 2, 23, 0, 0, 0, loc)
+	first, _ := Parse("0 1 * * *", loc)
+	if got := first.Next(nov02); !got.Equal(time.Date(2024, 11, 3, 1, 0, 0, 0, loc)) {
+		t.Errorf("first 01:00 on fall-back: Next = %s; want 2024-11-03 01:00 EDT", got)
+	}
+}
+
+func FuzzParse(f *testing.F) {
+	seeds := []string{
+		"0 0 * * *", "0 0 1 1 *", "5/10 * * * *", "@hourly", "@daily",
+		"0 0 * * 0", "* * * * *", "*/5 * * * *", "0 0 1 1 1",
+	}
+	for _, s := range seeds {
+		f.Add(s, false)
+		f.Add(s, true)
+	}
+	for _, s := range []string{"@every 3s", "@every 10m", "0 0 29 2 *", "0 0 1 jan *"} {
+		f.Add(s, false)
+	}
+	f.Fuzz(func(t *testing.T, expr string, withSec bool) {
+		from := ts(2024, 1, 1, 0, 0)
+		var (
+			s1, s2 Schedule
+			err    error
+		)
+		if withSec {
+			s1, err = ParseSeconds(expr, time.UTC)
+		} else {
+			s1, err = Parse(expr, time.UTC)
+		}
+		if err != nil {
+			return
+		}
+		if withSec {
+			s2, err = ParseSeconds(expr, time.UTC)
+		} else {
+			s2, err = Parse(expr, time.UTC)
+		}
+		if err != nil {
+			t.Fatalf("re-parse failed: %v", err)
+		}
+		if n := s1.Next(from); !n.Equal(s2.Next(from)) {
+			t.Errorf("non-deterministic Next(%q): %s vs %s", expr, s1.Next(from), s2.Next(from))
+		}
+	})
 }
