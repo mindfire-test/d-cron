@@ -121,9 +121,19 @@ func (r Retry) backoff(attempt int) time.Duration {
 
 // Result is the outcome of a logical execution.
 type Result struct {
-	Outcome  Outcome
-	Error    error
+	// Name is the job name passed to Run (issue #36).
+	Name string
+	// Outcome classifies the terminal state after all retries.
+	Outcome Outcome
+	// Error is the terminal error (nil on success). It may be a *PanicError
+	// or *TimeoutError carrying the job name (issue #26).
+	Error error
+	// Attempts is the total number of run attempts made (>= 1).
 	Attempts int
+	// Duration is the wall-clock time from the first attempt start to completion
+	// of the logical execution, including inter-attempt backoff. It is the value
+	// surfaced to metrics and dashboards (issue #36).
+	Duration time.Duration
 }
 
 // PanicError is the typed result of a recovered panic. It carries the panic

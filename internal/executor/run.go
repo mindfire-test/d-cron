@@ -25,21 +25,22 @@ type attemptResult struct {
 // spawn.
 func Run(ctx context.Context, name string, fn Func, retry Retry) Result {
 	r := retry.withDefaults()
+	start := time.Now()
 	for attempt := 1; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			out := outcomeOf(err)
-			return Result{Outcome: out, Error: wrapJobErr(name, out, err), Attempts: attempt - 1}
+			return Result{Name: name, Outcome: out, Error: wrapJobErr(name, out, err), Attempts: attempt - 1, Duration: time.Since(start)}
 		}
 		ac, cancel := attemptCtx(ctx, r.Timeout)
 		out, _, err := runAttempt(ac, name, fn)
 		cancel()
 		switch out {
 		case OutcomeOK:
-			return Result{Outcome: OutcomeOK, Attempts: attempt}
+			return Result{Name: name, Outcome: OutcomeOK, Attempts: attempt, Duration: time.Since(start)}
 		case OutcomePanicked:
-			return Result{Outcome: OutcomePanicked, Error: err, Attempts: attempt}
+			return Result{Name: name, Outcome: OutcomePanicked, Error: err, Attempts: attempt, Duration: time.Since(start)}
 		case OutcomeCanceled:
-			return Result{Outcome: OutcomeCanceled, Error: err, Attempts: attempt}
+			return Result{Name: name, Outcome: OutcomeCanceled, Error: err, Attempts: attempt, Duration: time.Since(start)}
 		case OutcomeTimedOut:
 			if attempt < r.Attempts {
 				sleep(ctx, r.backoff(attempt))
@@ -51,7 +52,7 @@ func Run(ctx context.Context, name string, fn Func, retry Retry) Result {
 				continue
 			}
 		}
-		return Result{Outcome: out, Error: wrapJobErr(name, out, err), Attempts: attempt}
+		return Result{Name: name, Outcome: out, Error: wrapJobErr(name, out, err), Attempts: attempt, Duration: time.Since(start)}
 	}
 }
 

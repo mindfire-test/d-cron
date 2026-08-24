@@ -21,6 +21,7 @@ import (
 	"github.com/mindfire-test/d-cron/internal/clock"
 	"github.com/mindfire-test/d-cron/internal/elector"
 	"github.com/mindfire-test/d-cron/internal/executor"
+	"github.com/mindfire-test/d-cron/internal/store"
 )
 
 // Scheduler is a distributed cron scheduler.
@@ -32,6 +33,9 @@ type Scheduler struct {
 	// db is retained for HealthCheck (issue #37). It may be nil when the
 	// scheduler was built via newWithBackend in tests.
 	db *sql.DB
+	// store persists execution history when WithHistory was supplied (issue
+	// #34); nil otherwise so the Phase-1 zero-migrations guarantee holds.
+	store *store.Store
 
 	mu     sync.Mutex
 	clk    *clock.Queue
@@ -51,6 +55,10 @@ type Scheduler struct {
 	// Accessed only from the runLoop goroutine.
 	termCtx    context.Context
 	termCancel context.CancelFunc
+
+	// lastPrune throttles history retention pruning to once per pruneInterval.
+	// Accessed only from the runLoop goroutine.
+	lastPrune time.Time
 }
 
 // New creates a Scheduler bound to db.
@@ -99,9 +107,25 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 	// Best-effort keepalive preflight; never fails startup (issue #14).
 	elector.WarnKeepalive(context.Background(), elector.NewSQLConn(conn), cfg.logger)
 
+	// Opt-in history (issue #34): only WithHistory creates the schema/tables.
+	// The migration runs here so a bad schema name or an unreachable database
+	// fails at construction rather than silently losing history at runtime.
+	var hist *store.Store
+	if cfg.history && db != nil {
+		hist, err = store.New(db, cfg.schema)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.Migrate(context.Background(), db, cfg.schema); err != nil {
+			return nil, err
+		}
+		cfg.logger.Info("dcron: history enabled",
+			"schema", cfg.schema, "retention", cfg.retention.String())
+	}
+
 	cfg.logger.Info("dcron: scheduler constructed",
 		"namespace", cfg.namespace, "key", elector.LockKey(cfg.namespace), "instance", cfg.instance)
-	return newWithBackend(elector.NewStdBackend(conn), db, cfg), nil
+	return newWithBackend(elector.NewStdBackend(conn), db, cfg, hist), nil
 }
 
 // lockConnection obtains the dedicated, session-stable connection used for the
@@ -116,12 +140,13 @@ func lockConnection(cfg options, db *sql.DB) (*sql.Conn, error) {
 }
 
 // newWithBackend builds a Scheduler around an injected Backend, bypassing the
-// database gates. It is used by New and by tests. db may be nil in tests that
-// don't exercise HealthCheck.
-func newWithBackend(backend elector.Backend, db *sql.DB, cfg options) *Scheduler {
+// database gates. It is used by New and by tests. db and hist may be nil in
+// tests that don't exercise HealthCheck or history.
+func newWithBackend(backend elector.Backend, db *sql.DB, cfg options, hist *store.Store) *Scheduler {
 	return &Scheduler{
 		opts:   cfg,
 		db:     db,
+		store:  hist,
 		clk:    &clock.Queue{},
 		jobs:   make(map[string]*Job),
 		leader: elector.New(cfg.namespace, cfg.instance, backend, cfg.logger),
@@ -133,6 +158,14 @@ func newWithBackend(backend elector.Backend, db *sql.DB, cfg options) *Scheduler
 // (issue #6). Two schedulers in the same database sharing a key contend for
 // one lock; use distinct namespaces per application.
 func (s *Scheduler) Key() int64 { return s.leader.Key() }
+
+// InstanceID returns this scheduler's process-local identifier as it appears
+// in leadership-transition logs and history rows (issue #38: the dashboard
+// displays it alongside leadership state).
+func (s *Scheduler) InstanceID() string { return s.opts.instance }
+
+// Namespace returns the namespace this scheduler was constructed with.
+func (s *Scheduler) Namespace() string { return s.opts.namespace }
 
 // Add registers a job. name must be unique, spec must be a valid schedule (see
 // clock.Parse), and fn must not be nil. Jobs must be added before Start.

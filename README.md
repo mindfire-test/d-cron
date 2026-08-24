@@ -115,7 +115,141 @@ func main() {
 
 ---
 
-## 4. Correctness Model & Guarantees
+## 4. Phase 2 — Observability
+
+Phase 2 adds opt-in observability without touching the Phase-1 guarantee that
+the core path creates **zero tables** (AC-09). Everything below is off unless
+you turn it on.
+
+### Leadership, health, and introspection
+
+```go
+// Three-valued leadership state — NOT a bool: "not leader" and "don't know"
+// are different answers, and a readiness probe needs to tell them apart (FR-109).
+switch sched.Leadership() {
+case dcron.LeadershipLeader:  // this replica holds the lock and runs the clock
+case dcron.LeadershipStandby: // polling for promotion
+case dcron.LeadershipUnknown: // before the first poll / after a DB error
+}
+
+// Kubernetes probes (FR-411): see examples/kubernetes for /healthz and /readyz.
+if err := sched.HealthCheck(ctx); err != nil { /* backend unreachable */ }
+
+// Point-in-time job snapshot for dashboards and diagnostics (FR-406).
+for _, j := range sched.Jobs() {
+    fmt.Println(j.Name, j.Spec, j.NextRun, j.LastOutcome, j.LastDurationMS)
+}
+```
+
+### One-off jobs
+
+```go
+// Fires exactly once at `at`, then is evicted from the heap (issue #33).
+// Not persisted: re-register it on process restart.
+_ = sched.AddOnce("warm-cache", time.Now().Add(30*time.Second), func(ctx context.Context) error {
+    return warmCache(ctx)
+})
+```
+
+### Failure notification hooks
+
+```go
+sched, err := dcron.New(db,
+    dcron.WithSessionStableConnection(),
+    dcron.WithHooks(&dcron.WebhookHook{
+        URL:     "https://alerts.example.com/dcron",
+        Timeout: 5 * time.Second,
+        Headers: map[string]string{"Authorization": "Bearer ..."},
+    }),
+    dcron.WithHooks(dcron.HookFunc(func(ctx context.Context, res executor.Result) error {
+        log.Printf("job %s finished: %s after %d attempt(s)", res.Name, res.Outcome, res.Attempts)
+        return nil
+    })),
+)
+```
+
+Hooks fire asynchronously after each execution completes; a hook error is
+logged and never fails the job or the scheduling loop.
+
+### Metrics (opt-in adapter)
+
+The core never links a metrics SDK (NFR-402) — enforced by
+`metrics.TestCoreDoesNotLinkMetricsSDK`. You supply a
+`metrics.Recorder` via `dcron.WithMetrics(rec)`; bridge it to your own
+registry using the exported metric keys:
+
+| Key | Type | Notes |
+| :-- | :--- | :---- |
+| `dcron_is_leader` | gauge | 1/0 |
+| `dcron_leader_transitions_total` | counter | flapping detector |
+| `dcron_job_executions_total{job,status}` | counter | status: success/failed/panicked/timeout/canceled/skipped |
+| `dcron_job_duration_seconds{job}` | histogram | per logical execution incl. retries |
+| `dcron_job_last_success_timestamp{job}` | gauge | best staleness alert |
+| `dcron_jobs_running{job}` | gauge | concurrency |
+| `dcron_fenced_writes_total` | counter | non-zero means split-brain occurred |
+| `dcron_missed_runs_total{job}` | counter | skipped/catch-up fires |
+
+**Alert with duration qualifiers, never the instantaneous value** —
+`sum(dcron_is_leader)` is legitimately 0 during every normal failover and 2
+during the split-brain window:
+
+```promql
+# No leader for longer than a few poll intervals — jobs are not running
+sum(dcron_is_leader) == 0
+  for: 2m
+
+# Two leaders at once, sustained — split-brain beyond the expected window
+sum(dcron_is_leader) > 1
+  for: 30s
+
+# A demoted leader tried to write. Any occurrence is worth knowing about.
+increase(dcron_fenced_writes_total[5m]) > 0
+```
+
+### Execution history (opt-in schema)
+
+`dcron.WithHistory(retention)` enables durable execution history in schema
+`dcron` (**never** `public`; configurable via `dcron.WithSchema`). This is the
+one feature that creates tables — the "zero migrations" claim is Phase-1 only:
+
+- Migration is idempotent (`IF NOT EXISTS`) DDL wrapped in a transaction,
+  guarded by a **separate advisory lock** so N replicas starting at once do not
+  race (FR-504). It is safe to call from every replica at startup.
+- Every execution writes one row with status
+  `running|success|failed|panicked|skipped|timeout`, indexed on
+  `(namespace, job_name, scheduled_at DESC)`.
+- Retention pruning runs on the leader as an internal job; history write
+  failures are logged and never fail the job itself.
+- All queries are parameterised; the schema identifier is validated against an
+  allowlist (NFR-503).
+
+### Embedded dashboard (opt-in mounting)
+
+```go
+mux.Handle("/internal/dcron", ui.Handler(
+    func() ui.Overview {
+        return ui.Overview{
+            Namespace:      sched.Namespace(),
+            InstanceID:     sched.InstanceID(),
+            LockKey:        sched.Key(),   // namespace collisions show up here
+            Leadership:     sched.Leadership().String(),
+            HistoryEnabled: true,
+            Schema:         "dcron",
+            Jobs:           nil, // fill from sched.Jobs()
+        }
+    },
+    nil, // optional: recent history rows from the store
+))
+```
+
+Server-rendered `html/template`, assets embedded via `embed.FS`, no CDN, no
+build step, works air-gapped (FR-407). Read-only in Phase 2 (NFR-502). It
+performs **no authentication**: mounting it behind your own auth middleware is
+your responsibility (FR-408).
+
+---
+
+## 5. Correctness Model & Guarantees
 
 ### What `d-cron` Guarantees
 
@@ -135,7 +269,7 @@ func main() {
 
 ---
 
-## 5. Mandatory Operator Configuration
+## 6. Mandatory Operator Configuration
 
 ### PostgreSQL TCP Keepalives
 
@@ -161,7 +295,7 @@ dcron.WithDedicatedLockDSN(dsn)          // DCron opens its own dedicated direct
 
 ---
 
-## 6. Development & Workflow
+## 7. Development & Workflow
 
 ### Required Tooling
 

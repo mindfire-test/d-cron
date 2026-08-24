@@ -61,7 +61,7 @@ func waitFor(cond func() bool, what string) {
 }
 
 func TestAddOnceEvictsAfterFiring(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
 	var fired atomic.Int64
 	at := time.Now().Add(500 * time.Millisecond)
 	if err := s.AddOnce("wallclock", at, func(context.Context) error {
@@ -84,7 +84,7 @@ func TestAddOnceEvictsAfterFiring(t *testing.T) {
 }
 
 func TestLeadershipThreeState(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
 	if got := s.Leadership(); got != LeadershipUnknown {
 		t.Fatalf("pre-start Leadership = %v; want unknown", got)
 	}
@@ -98,14 +98,14 @@ func TestLeadershipThreeState(t *testing.T) {
 }
 
 func TestHealthCheckNilDBPassthrough(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
 	if err := s.HealthCheck(context.Background()); err != nil {
 		t.Fatalf("HealthCheck with no db: %v", err)
 	}
 }
 
 func TestJobsReportsRunOutcome(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
 	if err := s.Add("ok", "@every 1ms", func(context.Context) error { return nil }, WithRetry(Retry{Attempts: 1})); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestJobsReportsRunOutcome(t *testing.T) {
 }
 
 func TestJobsReportsRunningFlag(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
 	if err := s.Add("slow", "@every 2ms", func(_ context.Context) error {
 		for i := 0; i < 30_000_000; i++ {
 			_ = i
@@ -150,7 +150,7 @@ func TestHooksInvokedOnCompletion(t *testing.T) {
 		fired.Add(1)
 		return nil
 	}))
-	s := newWithBackend(newSchedBackend(), nil, cfg)
+	s := newWithBackend(newSchedBackend(), nil, cfg, nil)
 	if err := s.Add("henr", "@every 1ms", func(context.Context) error { return nil }, WithRetry(Retry{Attempts: 1})); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestMetricsRecorderReceivesSignals(t *testing.T) {
 	rec := newRecordingRecorder()
 	cfg := testCfg()
 	cfg.rec = rec
-	s := newWithBackend(newSchedBackend(), nil, cfg)
+	s := newWithBackend(newSchedBackend(), nil, cfg, nil)
 	if err := s.Add("job", "@every 1ms", func(context.Context) error { return nil }, WithRetry(Retry{Attempts: 1})); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestWebhookHookConstruction(t *testing.T) {
 
 func errIs(err, target error) bool { return errors.Is(err, target) }
 func TestAddOnceRejectsPastTime(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
 	noop := func(context.Context) error { return nil }
 	past := time.Now().Add(-time.Minute)
 	if err := s.AddOnce("expired", past, noop); !errIs(err, ErrInvalidSpec) {
@@ -216,7 +216,7 @@ func TestAddOnceRejectsPastTime(t *testing.T) {
 }
 
 func TestAddOnceDuplicateName(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
 	noop := func(context.Context) error { return nil }
 	at := time.Now().Add(time.Hour)
 	if err := s.AddOnce("dup", at, noop); err != nil {

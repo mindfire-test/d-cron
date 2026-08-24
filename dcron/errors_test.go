@@ -11,7 +11,7 @@ import (
 // sentinels (so nothing that compared on ErrJobExists/ErrInvalidSpec breaks).
 func TestAddReturnsTypedErrors(t *testing.T) {
 	t.Parallel()
-	s := newWithBackend(newSchedBackend(), nil, testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
 	noop := func(context.Context) error { return nil }
 
 	if err := s.Add("dup", "*/5 * * * *", noop); err != nil {

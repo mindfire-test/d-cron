@@ -11,6 +11,7 @@ import (
 
 	"github.com/mindfire-test/d-cron/internal/clock"
 	"github.com/mindfire-test/d-cron/internal/executor"
+	"github.com/mindfire-test/d-cron/internal/store"
 	"github.com/mindfire-test/d-cron/metrics"
 )
 
@@ -52,6 +53,7 @@ func (s *Scheduler) runLoop() {
 
 		if isLeader {
 			s.fireDue(now, epoch)
+			s.pruneHistory(now)
 		}
 
 		select {
@@ -80,6 +82,31 @@ func (s *Scheduler) onDemotion() {
 	s.leader.FinalizeDemotion()
 	s.opts.rec.SetLeader(s.opts.instance, false)
 	s.opts.rec.LeaderTransition(s.opts.instance)
+}
+
+// pruneInterval bounds how often the leader attempts retention pruning. It is
+// deliberately coarse: pruning is housekeeping, not scheduling.
+const pruneInterval = time.Minute
+
+// pruneHistory deletes history rows older than the configured retention (issue
+// #35). It runs only on the leader and at most once per pruneInterval; failures
+// are logged and retried on a later poll, never propagated.
+func (s *Scheduler) pruneHistory(now time.Time) {
+	if s.store == nil || s.opts.retention <= 0 {
+		return
+	}
+	if now.Sub(s.lastPrune) < pruneInterval {
+		return
+	}
+	s.lastPrune = now
+	n, err := s.store.Prune(context.Background(), s.opts.namespace, s.opts.retention)
+	if err != nil {
+		s.opts.logger.Warn("dcron: history prune failed", "err", err)
+		return
+	}
+	if n > 0 {
+		s.opts.logger.Info("dcron: pruned history", "rows", n)
+	}
 }
 
 // fireDue executes every job whose FireAt is at or before now and re-queues
@@ -129,6 +156,29 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 	j.statusMu.Unlock()
 	s.opts.rec.JobStarted(j.name)
 
+	// History recording (issue #35): insert the opening "running" row now and
+	// settle it to a terminal state on completion. A history failure is logged
+	// and NEVER fails the job (SDS §10); a nil store means history is disabled.
+	started := time.Now()
+	var rowID int64
+	if s.store != nil {
+		row, err := s.store.Record(context.Background(), store.Execution{
+			Namespace:   s.opts.namespace,
+			JobName:     j.name,
+			ScheduledAt: fireAt,
+			StartedAt:   started,
+			Status:      store.StatusRunning,
+			Attempt:     1,
+			InstanceID:  s.opts.instance,
+			LeaderEpoch: epoch,
+		})
+		if err != nil {
+			s.opts.logger.Warn("dcron: history record failed", "job", j.name, "err", err)
+		} else {
+			rowID = row
+		}
+	}
+
 	onComplete := func(res executor.Result) {
 		j.statusMu.Lock()
 		j.running = false
@@ -139,9 +189,46 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 		}
 		j.statusMu.Unlock()
 		s.opts.rec.JobFinished(j.name, outcomeToMetric(res.Outcome), res.Duration, res.Outcome == executor.OutcomeOK)
+		if s.store != nil && rowID != 0 {
+			if _, err := s.store.Finish(context.Background(), rowID, store.Execution{
+				Status:     historyStatus(res.Outcome),
+				FinishedAt: started.Add(res.Duration),
+				DurationMs: res.Duration.Milliseconds(),
+				Error:      errorString(res.Error),
+				Attempt:    res.Attempts,
+			}); err != nil {
+				s.opts.logger.Warn("dcron: history finish failed", "job", j.name, "err", err)
+			}
+		}
 		s.fireHooks(res)
 	}
 	s.group.Go(s.termCtx, j.name, executor.Func(fn), j.retry, s.opts.logger, onComplete)
+}
+
+// historyStatus maps an executor Outcome onto the store's Status enum for the
+// terminal execution row (issue #35; statuses running|success|failed|panicked|
+// skipped|timeout per SDS §10).
+func historyStatus(o executor.Outcome) store.Status {
+	switch o {
+	case executor.OutcomeOK:
+		return store.StatusSuccess
+	case executor.OutcomeFailed:
+		return store.StatusFailed
+	case executor.OutcomePanicked:
+		return store.StatusPanicked
+	case executor.OutcomeTimedOut:
+		return store.StatusTimeout
+	default:
+		return store.StatusSkipped
+	}
+}
+
+// errorString renders err for the history row ("", not NULL, when nil).
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // deriveIdempotencyKey derives the deterministic key for one execution of job in

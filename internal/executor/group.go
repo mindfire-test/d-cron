@@ -25,7 +25,10 @@ func NewGroup() *Group {
 // Go runs fn under ctx, retrying per retry. The returned outcome is logged on
 // failure, including the recovered-panic stack when applicable. The call does
 // not block. ctx must carry shutdown and demotion cancellation (SDS §5.3).
-func (g *Group) Go(ctx context.Context, name string, fn Func, retry Retry, log *slog.Logger) {
+// onComplete, if non-nil, is invoked with the final Result on the caller's
+// goroutine so the scheduler can update job status, fire hooks, and record
+// metrics without coupling the executor to those concerns.
+func (g *Group) Go(ctx context.Context, name string, fn Func, retry Retry, log *slog.Logger, onComplete ...func(Result)) {
 	g.wg.Add(1)
 	go func() {
 		defer g.wg.Done()
@@ -42,6 +45,11 @@ func (g *Group) Go(ctx context.Context, name string, fn Func, retry Retry, log *
 				attrs = append(attrs, "stack", string(pe.Stack))
 			}
 			log.Error("executor: job failed", attrs...)
+		}
+		for _, cb := range onComplete {
+			if cb != nil {
+				cb(res)
+			}
 		}
 	}()
 }

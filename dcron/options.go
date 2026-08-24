@@ -44,6 +44,11 @@ type options struct {
 	// Phase 2 observability configuration.
 	hooks []Hook           // issue #39: terminal-outcome notification hooks
 	rec   metrics.Recorder // issue #36: metrics sink (Noop when unset)
+
+	// Phase 2 history (issue #34/#35). history=true when WithHistory was called.
+	history   bool
+	retention time.Duration // <=0 keeps history indefinitely
+	schema    string        // default "dcron"
 }
 
 // defaultOptions returns the documented defaults.
@@ -56,6 +61,7 @@ func defaultOptions() options {
 		logger:       slog.Default(),
 		instance:     newInstanceID(),
 		rec:          metrics.Noop{},
+		schema:       "dcron",
 	}
 }
 
@@ -117,6 +123,29 @@ func WithMetrics(rec metrics.Recorder) Option {
 	return func(o *options) {
 		if rec != nil {
 			o.rec = rec
+		}
+	}
+}
+
+// WithHistory enables durable execution history (SDS §10, issues #34/#35).
+// This is OPT-IN: unless called, d-cron creates no tables and no schema, and
+// the "zero migrations" Phase-1 guarantee holds. With a positive retention,
+// finished executions older than retention are pruned on the leader as an
+// internal job. A retention of 0 keeps history indefinitely.
+func WithHistory(retention time.Duration) Option {
+	return func(o *options) {
+		o.history = true
+		o.retention = retention
+	}
+}
+
+// WithSchema sets the database schema used for the opt-in history tables
+// (issue #34). The default is "dcron"; the schema is never "public". The value
+// must be a lowercase SQL identifier; anything else fails at construction.
+func WithSchema(schema string) Option {
+	return func(o *options) {
+		if schema != "" {
+			o.schema = schema
 		}
 	}
 }

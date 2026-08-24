@@ -3,17 +3,124 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!-- Self-refresh without JS: works air-gapped, no CDN, no build step. -->
+		<meta http-equiv="refresh" content="5" />
 		<title>d-cron dashboard</title>
+		<style>
+			:root { color-scheme: light dark; }
+			body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; }
+			h1 { font-size: 1.4rem; }
+			h2 { font-size: 1.1rem; margin-top: 2rem; }
+			dl.overview { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
+			dl.overview dt { font-weight: 600; }
+			code { font-family: ui-monospace, monospace; }
+			table { border-collapse: collapse; width: 100%; }
+			th, td { border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent); padding: .35rem .5rem; text-align: left; vertical-align: top; }
+			th { text-align: left; }
+			.leader { color: #1a7f37; font-weight: 700; }
+			.standby { color: #9a6700; font-weight: 700; }
+			.unknown { color: #808090; font-weight: 700; }
+			.status-success { color: #1a7f37; }
+			.status-failed, .status-panicked, .status-timeout { color: #cf222e; }
+			.status-running, .status-skipped, .status-canceled { color: #9a6700; }
+			.note { margin-top: 2.5rem; font-size: .85rem; opacity: .75; }
+			.muted { opacity: .6; }
+		</style>
 	</head>
 	<body>
-		<!--
-			Placeholder dashboard asset.
-
-			The server-rendered dashboard (leader status, registered jobs, last
-			run duration, execution history) is Phase 2 work; see the SDS §11.
-			The presence of at least one file here keeps the embed.FS valid.
-		-->
 		<h1>d-cron</h1>
-		<p>Dashboard coming in Phase 2.</p>
+
+		<section aria-label="overview">
+			<h2>Overview</h2>
+			<dl class="overview">
+				<dt>Leadership</dt>
+				<dd class="{{.Leadership}}">{{.Leadership}}</dd>
+				<dt>Namespace</dt>
+				<dd>{{.Namespace}}</dd>
+				<dt>Instance</dt>
+				<dd><code>{{.InstanceID}}</code></dd>
+				<dt>Resolved lock key</dt>
+				<dd><code>{{.LockKey}}</code></dd>
+				{{if .HistoryEnabled}}
+					<dt>History</dt>
+					<dd>enabled (schema <code>{{.Schema}}</code>)</dd>
+				{{else}}
+					<dt>History</dt>
+					<dd class="muted">disabled (opt in via WithHistory)</dd>
+				{{end}}
+			</dl>
+		</section>
+
+		<section aria-label="jobs">
+			<h2>Registered jobs</h2>
+			<table>
+				<thead>
+					<tr>
+						<th scope="col">Job</th>
+						<th scope="col">Schedule</th>
+						<th scope="col">Next run</th>
+						<th scope="col">Last run</th>
+						<th scope="col">Outcome</th>
+						<th scope="col">Duration</th>
+					</tr>
+				</thead>
+				<tbody>
+					{{$n := len .Jobs}}
+					{{if eq $n 0}}
+						<tr><td colspan="6" class="muted">No jobs registered.</td></tr>
+					{{end}}
+					{{range .Jobs}}
+						<tr>
+							<td>{{.Name}}{{if .Running}} <span class="status-running" title="currently running">&#9679;</span>{{end}}</td>
+							<td><code>{{.Spec}}</code></td>
+							<td>{{if .NextRun.IsZero}}<span class="muted">&mdash;</span>{{else}}{{.NextRun.Format "2006-01-02 15:04:05 MST"}}{{end}}</td>
+							<td>{{if .LastRun.IsZero}}<span class="muted">never</span>{{else}}{{.LastRun.Format "2006-01-02 15:04:05 MST"}}{{end}}</td>
+							<td>{{if .LastOutcome}}<span class="status-{{.LastOutcome}}">{{.LastOutcome}}</span>{{if .LastError}} <span class="muted" title="{{.LastError}}">(&#9432;)</span>{{end}}{{end}}</td>
+							<td>{{if gt .LastDurationMS 0}}{{.LastDurationMS}} ms{{else}}<span class="muted">&mdash;</span>{{end}}</td>
+						</tr>
+					{{end}}
+				</tbody>
+			</table>
+		</section>
+
+		<section aria-label="history">
+			<h2>Recent executions</h2>
+			<table>
+				<thead>
+					<tr>
+						<th scope="col">Scheduled</th>
+						<th scope="col">Job</th>
+						<th scope="col">Status</th>
+						<th scope="col">Attempt</th>
+						<th scope="col">Duration</th>
+						<th scope="col">Instance</th>
+						<th scope="col">Error</th>
+					</tr>
+				</thead>
+				<tbody>
+					{{$n := len .History}}
+					{{if eq $n 0}}
+						<tr><td colspan="7" class="muted">No history recorded{{if not .HistoryEnabled}} (history is disabled){{end}}.</td></tr>
+					{{end}}
+					{{range .History}}
+						<tr>
+							<td>{{.ScheduledAt.Format "2006-01-02 15:04:05"}}</td>
+							<td>{{.Job}}</td>
+							<td><span class="status-{{.Status}}">{{.Status}}</span></td>
+							<td>{{.Attempt}}</td>
+							<td>{{if gt .DurationMS 0}}{{.DurationMS}} ms{{else}}<span class="muted">&mdash;</span>{{end}}</td>
+							<td><code>{{.InstanceID}}</code></td>
+							<td>{{if .Error}}<code>{{.Error}}</code>{{else}}<span class="muted">&mdash;</span>{{end}}</td>
+						</tr>
+					{{end}}
+				</tbody>
+			</table>
+		</section>
+
+		<p class="note">
+			Read-only dashboard (d-cron Phase&nbsp;2). This surface performs no
+			authentication or authorization &mdash; mounting and protecting it is the
+			host application's responsibility.
+		</p>
 	</body>
 </html>

@@ -21,5 +21,32 @@ spec:
       containers:
         - name: app
           image: d-cron-example:latest
-          # TODO(Phase 1): liveness/readiness probes and env wiring for the
-          # DSN and session-stability settings once defined.
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: d-cron-example
+                  key: database-url
+            # Keepalives are MANDATORY (issue #14, SRS C-06): at PostgreSQL and
+            # Linux defaults a dead or partitioned leader holds the advisory
+            # lock for HOURS with no promotion.
+            - name: DSN_KEEPALIVES
+              value: "keepalives=1&keepalives_idle=60&keepalives_interval=10&keepalives_count=3"
+          ports:
+            - name: probes
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          # terminationGracePeriodSeconds must exceed WithDrainTimeout (30s):
+          # Stop() unlocks first, then drains in-flight jobs within the budget.
+          terminationGracePeriodSeconds: 45
