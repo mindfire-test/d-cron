@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"math/rand/v2"
+	"sync"
 	"time"
 
 	"github.com/mindfire-test/d-cron/internal/clock"
@@ -139,13 +140,42 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 // epoch fence token and the deterministic fire-time idempotency key (issue #21,
 // SDS §5.4). It records job status on the Job so Jobs() can report it (#37)
 // and hands the final Result to any registered hooks (#39).
+//
+// History recording (issue #35) happens on the EXECUTOR goroutine, never here:
+// invoke runs under s.mu on the leadership loop, and a slow history insert
+// must not delay dispatch of other jobs. A sync.Once keeps the opening
+// "running" row to one per logical execution even when Run retries.
 func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
+	started := time.Now()
+	var rowID int64
+	var recordOnce sync.Once
+
 	fn := func(ctx context.Context) error {
 		if !j.overlap {
 			defer j.busy.Unlock()
 		}
 		ctx = WithEpoch(ctx, epoch)
 		ctx = WithIdempotencyKey(ctx, deriveIdempotencyKey(s.opts.namespace, j.name, fireAt))
+		recordOnce.Do(func() {
+			if s.store == nil {
+				return
+			}
+			row, err := s.store.Record(context.Background(), store.Execution{
+				Namespace:   s.opts.namespace,
+				JobName:     j.name,
+				ScheduledAt: fireAt,
+				StartedAt:   started,
+				Status:      store.StatusRunning,
+				Attempt:     1,
+				InstanceID:  s.opts.instance,
+				LeaderEpoch: epoch,
+			})
+			if err != nil {
+				s.opts.logger.Warn("dcron: history record failed", "job", j.name, "err", err)
+				return
+			}
+			rowID = row
+		})
 		return j.fn(ctx)
 	}
 	// Snapshot status under statusMu (guarded separately from s.mu since the
@@ -155,29 +185,6 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 	j.lastError = ""
 	j.statusMu.Unlock()
 	s.opts.rec.JobStarted(j.name)
-
-	// History recording (issue #35): insert the opening "running" row now and
-	// settle it to a terminal state on completion. A history failure is logged
-	// and NEVER fails the job (SDS §10); a nil store means history is disabled.
-	started := time.Now()
-	var rowID int64
-	if s.store != nil {
-		row, err := s.store.Record(context.Background(), store.Execution{
-			Namespace:   s.opts.namespace,
-			JobName:     j.name,
-			ScheduledAt: fireAt,
-			StartedAt:   started,
-			Status:      store.StatusRunning,
-			Attempt:     1,
-			InstanceID:  s.opts.instance,
-			LeaderEpoch: epoch,
-		})
-		if err != nil {
-			s.opts.logger.Warn("dcron: history record failed", "job", j.name, "err", err)
-		} else {
-			rowID = row
-		}
-	}
 
 	onComplete := func(res executor.Result) {
 		j.statusMu.Lock()
