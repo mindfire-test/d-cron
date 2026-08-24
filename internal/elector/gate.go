@@ -69,7 +69,7 @@ func ProbeSessionStable(ctx context.Context, q Querier) (bool, error) {
 // unlimited and is permitted.
 func PoolCapacity(maxOpen int) error {
 	if maxOpen == 1 {
-		return ErrSingleConnectionPool
+		return &SingleConnectionPoolError{MaxOpen: maxOpen}
 	}
 	return nil
 }

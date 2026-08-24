@@ -23,14 +23,15 @@ type attemptResult struct {
 // itself spawns cannot be recovered by Go and will terminate the process; the
 // job-authoring guide (#30) requires jobs to recover inside any goroutine they
 // spawn.
-func Run(ctx context.Context, fn Func, retry Retry) Result {
+func Run(ctx context.Context, name string, fn Func, retry Retry) Result {
 	r := retry.withDefaults()
 	for attempt := 1; ; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return Result{Outcome: outcomeOf(err), Error: err, Attempts: attempt - 1}
+			out := outcomeOf(err)
+			return Result{Outcome: out, Error: wrapJobErr(name, out, err), Attempts: attempt - 1}
 		}
 		ac, cancel := attemptCtx(ctx, r.Timeout)
-		out, _, err := runAttempt(ac, fn)
+		out, _, err := runAttempt(ac, name, fn)
 		cancel()
 		switch out {
 		case OutcomeOK:
@@ -50,8 +51,22 @@ func Run(ctx context.Context, fn Func, retry Retry) Result {
 				continue
 			}
 		}
-		return Result{Outcome: out, Error: err, Attempts: attempt}
+		return Result{Outcome: out, Error: wrapJobErr(name, out, err), Attempts: attempt}
 	}
+}
+
+// wrapJobErr tags a result error with the job name (issue #26) and wraps
+// deadline failures as *TimeoutError so callers can errors.Is(err,
+// context.DeadlineExceeded) while still distinguishing a job timeout. Canceled
+// and failed errors are returned as-is for backward-compatible errors.Is.
+func wrapJobErr(name string, out Outcome, err error) error {
+	if err == nil {
+		return nil
+	}
+	if out == OutcomeTimedOut && errors.Is(err, context.DeadlineExceeded) {
+		return &TimeoutError{Job: name, Err: err}
+	}
+	return err
 }
 
 // attemptCtx bounds a single run by the per-attempt timeout, or derives a
@@ -78,7 +93,7 @@ func sleep(ctx context.Context, d time.Duration) {
 
 // runAttempt runs fn once under ctx, capturing any panic. It never returns
 // OutcomeUnknown.
-func runAttempt(ctx context.Context, fn Func) (Outcome, []byte, error) {
+func runAttempt(ctx context.Context, name string, fn Func) (Outcome, []byte, error) {
 	ch := make(chan attemptResult, 1)
 	go func() {
 		defer func() {
@@ -104,7 +119,7 @@ func runAttempt(ctx context.Context, fn Func) (Outcome, []byte, error) {
 	// logged as orphaned. See SDS §7.
 	res := <-ch
 	if res.panic {
-		return OutcomePanicked, res.stack, &PanicError{Value: res.val, Stack: res.stack}
+		return OutcomePanicked, res.stack, &PanicError{Job: name, Value: res.val, Stack: res.stack}
 	}
 	return classify(res.err), nil, res.err
 }

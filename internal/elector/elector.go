@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 )
@@ -53,6 +54,22 @@ var (
 	// is 1, which starves both the lock and the session-stability probe.
 	ErrSingleConnectionPool = errors.New("elector: database MaxOpenConnections is 1; advisory-lock election requires at least two connections")
 )
+
+// SingleConnectionPoolError is the typed form returned by PoolCapacity when
+// maxOpen is 1 (issue #26). It carries the offending MaxOpenConnections value
+// so operators and logs see the concrete misconfiguration rather than parsing
+// a message. It implements errors.Is against ErrSingleConnectionPool.
+type SingleConnectionPoolError struct{ MaxOpen int }
+
+// Error implements error, naming the affected configuration (issue #26).
+func (e *SingleConnectionPoolError) Error() string {
+	return fmt.Sprintf("elector: database MaxOpenConnections is %d; advisory-lock election requires at least two connections", e.MaxOpen)
+}
+
+// Is allows errors.Is(err, ErrSingleConnectionPool) to match (issue #26).
+func (e *SingleConnectionPoolError) Is(target error) bool {
+	return target == ErrSingleConnectionPool
+}
 
 // LockKey derives the advisory-lock key for namespace.
 //

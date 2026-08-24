@@ -132,14 +132,40 @@ type Result struct {
 // (SDS §5.1, issue #18). The limitation — a panic on a goroutine the job
 // itself spawned cannot be recovered — is documented on the Run function.
 type PanicError struct {
+	// Job is the name of the scheduled job that panicked, or "" when Run was
+	// invoked without a name (issue #26).
+	Job   string
 	Value any
 	Stack []byte
 }
 
-// Error implements error.
+// Error implements error. The job name is included so an operator can jump
+// straight to the culprit without cross-referencing log lines (issue #26).
 func (e *PanicError) Error() string {
+	if e.Job != "" {
+		return fmt.Sprintf("executor: recovered panic in job %q: %v", e.Job, e.Value)
+	}
 	return fmt.Sprintf("executor: recovered panic: %v", e.Value)
 }
 
 // StackTrace returns the goroutine stack captured at panic time.
 func (e *PanicError) StackTrace() []byte { return e.Stack }
+
+// TimeoutError is the typed result of a job that exceeded its per-attempt
+// deadline (SDS §5.2, issue #19/#26). It wraps context.DeadlineExceeded so it
+// remains errors.Is-friendly, and carries the job name for diagnostics.
+type TimeoutError struct {
+	Job string
+	Err error
+}
+
+// Error implements error, naming the affected job when available (issue #26).
+func (e *TimeoutError) Error() string {
+	if e.Job != "" {
+		return fmt.Sprintf("executor: job %q timed out: %v", e.Job, e.Err)
+	}
+	return fmt.Sprintf("executor: timed out: %v", e.Err)
+}
+
+// Unwrap lets callers errors.Is/As the underlying cause (issue #26).
+func (e *TimeoutError) Unwrap() error { return e.Err }

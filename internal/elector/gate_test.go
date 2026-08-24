@@ -116,6 +116,25 @@ func TestPoolCapacity(t *testing.T) {
 	}
 }
 
+// TestPoolCapacityReturnsTypedError asserts that PoolCapacity returns the typed
+// *SingleConnectionPoolError (issue #26), not just the sentinel: callers may
+// errors.As for the concrete type to read the offending MaxOpen value, and it
+// still errors.Is-compares to ErrSingleConnectionPool (tested above).
+func TestPoolCapacityReturnsTypedError(t *testing.T) {
+	err := PoolCapacity(1)
+	var sce *SingleConnectionPoolError
+	if !errors.As(err, &sce) {
+		t.Fatalf("err = %T; want *SingleConnectionPoolError", err)
+	}
+	if sce.MaxOpen != 1 {
+		t.Errorf("MaxOpen = %d; want 1", sce.MaxOpen)
+	}
+	// The typed error must still match the sentinel so existing callers are unaffected.
+	if !errors.Is(err, ErrSingleConnectionPool) {
+		t.Fatal("typed error must also errors.Is against ErrSingleConnectionPool")
+	}
+}
+
 // keepaliveRow scans two nullable ints (the keepalive GUC probe result).
 type keepaliveRow struct {
 	i1, i2 *int

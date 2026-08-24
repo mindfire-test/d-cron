@@ -80,7 +80,7 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 		opt(&cfg)
 	}
 	if !cfg.sessionStable && cfg.lockConn == nil {
-		return nil, ErrSessionStabilityUnasserted
+		return nil, &SessionStabilityError{}
 	}
 	if cfg.lockConn == nil {
 		// Borrowing from the caller's pool: it must be able to spare one
@@ -141,7 +141,7 @@ func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error 
 		return ErrNilJob
 	}
 	if _, exists := s.jobs[name]; exists {
-		return ErrJobExists
+		return &JobExistsError{Name: name}
 	}
 	var sched clock.Schedule
 	var err error
@@ -151,7 +151,7 @@ func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error 
 		sched, err = clock.Parse(spec, s.opts.location)
 	}
 	if err != nil {
-		return ErrInvalidSpec
+		return &InvalidSpecError{Name: name, Spec: spec}
 	}
 	j := &Job{name: name, sched: sched, fn: fn, overlap: true}
 	for _, opt := range opts {

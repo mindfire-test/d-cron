@@ -25,13 +25,14 @@ func NewGroup() *Group {
 // Go runs fn under ctx, retrying per retry. The returned outcome is logged on
 // failure, including the recovered-panic stack when applicable. The call does
 // not block. ctx must carry shutdown and demotion cancellation (SDS §5.3).
-func (g *Group) Go(ctx context.Context, fn Func, retry Retry, log *slog.Logger) {
+func (g *Group) Go(ctx context.Context, name string, fn Func, retry Retry, log *slog.Logger) {
 	g.wg.Add(1)
 	go func() {
 		defer g.wg.Done()
-		res := Run(ctx, fn, retry)
+		res := Run(ctx, name, fn, retry)
 		if res.Outcome != OutcomeOK && log != nil {
 			attrs := []any{
+				"job", name,
 				"outcome", res.Outcome,
 				"err", res.Error,
 				"attempts", res.Attempts,

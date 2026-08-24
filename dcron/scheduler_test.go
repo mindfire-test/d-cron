@@ -224,8 +224,13 @@ func TestNewSessionStabilityGate(t *testing.T) {
 	}
 	defer db.Close()
 
-	if _, err := New(db); !errors.Is(err, ErrSessionStabilityUnasserted) {
-		t.Fatalf("New without assertion: err = %v; want ErrSessionStabilityUnasserted", err)
+	_, serr := New(db)
+	if !errors.Is(serr, ErrSessionStabilityUnasserted) {
+		t.Fatalf("New without assertion: err = %v; want ErrSessionStabilityUnasserted", serr)
+	}
+	var sse *SessionStabilityError
+	if !errors.As(serr, &sse) {
+		t.Fatalf("New without assertion: err = %T; want *SessionStabilityError", serr)
 	}
 	if _, err := New(db, WithSessionStableConnection(), WithLogger(discardLogger())); err != nil {
 		t.Fatalf("New with WithSessionStableConnection must pass the gate, got %v", err)

@@ -110,7 +110,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 		ctx = WithIdempotencyKey(ctx, deriveIdempotencyKey(s.opts.namespace, j.name, fireAt))
 		return j.fn(ctx)
 	}
-	s.group.Go(s.termCtx, executor.Func(fn), j.retry, s.opts.logger)
+	s.group.Go(s.termCtx, j.name, executor.Func(fn), j.retry, s.opts.logger)
 }
 
 // deriveIdempotencyKey derives the deterministic key for one execution of job in
