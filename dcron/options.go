@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"time"
+
+	"github.com/mindfire-test/d-cron/metrics"
 )
 
 // newInstanceID returns a short random hex id that identifies this scheduler
@@ -38,6 +40,10 @@ type options struct {
 	sessionStable bool
 	lockConn      func(ctx context.Context) (*sql.Conn, error)
 	secondsField  bool // parse specs as 6-field cron with a leading seconds field
+
+	// Phase 2 observability configuration.
+	hooks []Hook           // issue #39: terminal-outcome notification hooks
+	rec   metrics.Recorder // issue #36: metrics sink (Noop when unset)
 }
 
 // defaultOptions returns the documented defaults.
@@ -49,6 +55,7 @@ func defaultOptions() options {
 		drainTimeout: 30 * time.Second,
 		logger:       slog.Default(),
 		instance:     newInstanceID(),
+		rec:          metrics.Noop{},
 	}
 }
 
@@ -100,6 +107,17 @@ func WithLogger(l *slog.Logger) Option {
 func WithSessionStableConnection() Option {
 	return func(o *options) {
 		o.sessionStable = true
+	}
+}
+
+// WithMetrics supplies the recorder that receives scheduler and job
+// observability signals (issue #36, FR-404). The default is a Noop that
+// discards everything, so applications that do not use metrics pay nothing.
+func WithMetrics(rec metrics.Recorder) Option {
+	return func(o *options) {
+		if rec != nil {
+			o.rec = rec
+		}
 	}
 }
 

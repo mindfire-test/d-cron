@@ -93,7 +93,7 @@ func TestNewNilDB(t *testing.T) {
 }
 
 func TestAddValidation(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg())
 	noop := func(context.Context) error { return nil }
 
 	if err := s.Add("bad-spec", "not a spec", noop); !errors.Is(err, ErrInvalidSpec) {
@@ -111,7 +111,7 @@ func TestAddValidation(t *testing.T) {
 }
 
 func TestSchedulerLifecycle(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg())
 	if err := s.Stop(context.Background()); !errors.Is(err, ErrNotStarted) {
 		t.Fatalf("Stop before Start err = %v; want ErrNotStarted", err)
 	}
@@ -135,7 +135,7 @@ func TestSchedulerLifecycle(t *testing.T) {
 }
 
 func TestSchedulerFiresJobWhenLeader(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg())
 	var fired atomic.Int64
 	if err := s.Add("tick", "@every 1ms", func(context.Context) error {
 		fired.Add(1)
@@ -161,7 +161,7 @@ func TestSchedulerFiresJobWhenLeader(t *testing.T) {
 }
 
 func TestSchedulerInjectsEpochAndIdempotencyKey(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), testCfg())
+	s := newWithBackend(newSchedBackend(), nil, testCfg())
 	var epochSeen atomic.Int64
 	var keySeen atomic.Value
 	jobName := "report"
@@ -239,7 +239,7 @@ func TestNewSessionStabilityGate(t *testing.T) {
 
 func TestSchedulerKeyExposed(t *testing.T) {
 	cfg := testCfg()
-	s := newWithBackend(newSchedBackend(), cfg)
+	s := newWithBackend(newSchedBackend(), nil, cfg)
 	if got, want := s.Key(), elector.LockKey(cfg.namespace); got != want {
 		t.Fatalf("Key() = %d; want elector.LockKey(%q) = %d", got, cfg.namespace, want)
 	}

@@ -21,11 +21,24 @@ type JobFunc func(ctx context.Context) error
 // name to reason about a registration.
 type Job struct {
 	name    string
+	spec    string
 	sched   clock.Schedule
 	fn      JobFunc
 	retry   executor.Retry
 	overlap bool
 	busy    sync.Mutex
+
+	// Phase 2 status tracking (guarded by statusMu). Guarded separately from
+	// s.mu because jobs complete on the executor's goroutines, not the loop
+	// goroutine, and we never want to block the leadership loop updating one
+	// job's status while another is being inspected.
+	statusMu     sync.Mutex
+	nextRun      time.Time
+	lastRun      time.Time
+	lastOutcome  string
+	lastError    string
+	lastDuration time.Duration
+	running      bool
 }
 
 // Name returns the job's unique identifier.

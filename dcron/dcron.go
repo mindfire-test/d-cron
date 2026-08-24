@@ -29,6 +29,9 @@ import (
 // not safe for concurrent use by multiple goroutines.
 type Scheduler struct {
 	opts options
+	// db is retained for HealthCheck (issue #37). It may be nil when the
+	// scheduler was built via newWithBackend in tests.
+	db *sql.DB
 
 	mu     sync.Mutex
 	clk    *clock.Queue
@@ -98,7 +101,7 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 
 	cfg.logger.Info("dcron: scheduler constructed",
 		"namespace", cfg.namespace, "key", elector.LockKey(cfg.namespace), "instance", cfg.instance)
-	return newWithBackend(elector.NewStdBackend(conn), cfg), nil
+	return newWithBackend(elector.NewStdBackend(conn), db, cfg), nil
 }
 
 // lockConnection obtains the dedicated, session-stable connection used for the
@@ -113,10 +116,12 @@ func lockConnection(cfg options, db *sql.DB) (*sql.Conn, error) {
 }
 
 // newWithBackend builds a Scheduler around an injected Backend, bypassing the
-// database gates. It is used by New and by tests.
-func newWithBackend(backend elector.Backend, cfg options) *Scheduler {
+// database gates. It is used by New and by tests. db may be nil in tests that
+// don't exercise HealthCheck.
+func newWithBackend(backend elector.Backend, db *sql.DB, cfg options) *Scheduler {
 	return &Scheduler{
 		opts:   cfg,
+		db:     db,
 		clk:    &clock.Queue{},
 		jobs:   make(map[string]*Job),
 		leader: elector.New(cfg.namespace, cfg.instance, backend, cfg.logger),
@@ -153,13 +158,49 @@ func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error 
 	if err != nil {
 		return &InvalidSpecError{Name: name, Spec: spec}
 	}
-	j := &Job{name: name, sched: sched, fn: fn, overlap: true}
+	j := &Job{name: name, spec: spec, sched: sched, fn: fn, overlap: true}
 	for _, opt := range opts {
 		opt(j)
 	}
 	s.jobs[name] = j
 	if first := sched.Next(time.Now().In(s.opts.location)); !first.IsZero() {
+		j.nextRun = first
 		heap.Push(s.clk, &clock.Job{Name: name, FireAt: first, Sched: sched})
+	}
+	return nil
+}
+
+// AddOnce registers a job that fires exactly once at a fixed instant (issue
+// #33, FR-209) and is then evicted from the schedule. Everything else matches
+// Add: name must be unique and fn must not be nil. The once schedule is
+// deliberately not persisted — like every registration it is re-registered on
+// process restart (Phase 2 is in-memory by design).
+func (s *Scheduler) AddOnce(name string, at time.Time, fn JobFunc, opts ...JobOption) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started {
+		return ErrAlreadyStarted
+	}
+	if fn == nil {
+		return ErrNilJob
+	}
+	if _, exists := s.jobs[name]; exists {
+		return &JobExistsError{Name: name}
+	}
+	sched := clock.NewOnce(at, s.opts.location)
+	if !sched.Next(time.Now().In(s.opts.location)).IsZero() {
+		j := &Job{name: name, spec: "@once " + at.Format(time.RFC3339), sched: sched, fn: fn, overlap: true}
+		for _, opt := range opts {
+			opt(j)
+		}
+		s.jobs[name] = j
+		j.nextRun = at.In(s.opts.location)
+		heap.Push(s.clk, &clock.Job{Name: name, FireAt: j.nextRun, Sched: sched})
+	} else {
+		// The instant is already in the past (or exactly now): registering a
+		// past once-job would silently no-op. Return an explicit error instead
+		// of pretending it was queued (issue #33).
+		return &InvalidSpecError{Name: name, Spec: "@once " + at.Format(time.RFC3339)}
 	}
 	return nil
 }

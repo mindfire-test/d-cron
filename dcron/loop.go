@@ -11,6 +11,7 @@ import (
 
 	"github.com/mindfire-test/d-cron/internal/clock"
 	"github.com/mindfire-test/d-cron/internal/executor"
+	"github.com/mindfire-test/d-cron/metrics"
 )
 
 // runLoop is the scheduler's background loop (SDS §4.1): on each wake it
@@ -62,17 +63,23 @@ func (s *Scheduler) runLoop() {
 	}
 }
 
-// onPromotion refreshes the leadership term context. Runs on the loop goroutine.
+// onPromotion refreshes the leadership term context and flips the leader gauge.
+// Runs on the loop goroutine.
 func (s *Scheduler) onPromotion() {
 	s.termCancel()
 	s.termCtx, s.termCancel = context.WithCancel(s.runCtx)
+	s.opts.rec.SetLeader(s.opts.instance, true)
+	s.opts.rec.LeaderTransition(s.opts.instance)
 }
 
-// onDemotion aborts in-flight work for the finished leadership term and settles
-// the elector back to standby. Runs on the loop goroutine.
+// onDemotion aborts in-flight work for the finished leadership term, settles
+// the elector back to standby, and clears the leader gauge. Runs on the loop
+// goroutine.
 func (s *Scheduler) onDemotion() {
 	s.termCancel()
 	s.leader.FinalizeDemotion()
+	s.opts.rec.SetLeader(s.opts.instance, false)
+	s.opts.rec.LeaderTransition(s.opts.instance)
 }
 
 // fireDue executes every job whose FireAt is at or before now and re-queues
@@ -87,7 +94,10 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 			continue
 		}
 		if next := j.sched.Next(cd.FireAt); !next.IsZero() {
+			j.nextRun = next
 			heap.Push(s.clk, &clock.Job{Name: j.name, FireAt: next, Sched: j.sched})
+		} else {
+			j.nextRun = time.Time{}
 		}
 		if !j.overlap && !j.busy.TryLock() {
 			s.opts.logger.Warn("dcron: skipping fire while previous run is active", "job", j.name)
@@ -100,7 +110,8 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 // invoke dispatches one job run through the executor group under the leadership
 // term context (cancelled on demotion and on shutdown), injecting the leader
 // epoch fence token and the deterministic fire-time idempotency key (issue #21,
-// SDS §5.4).
+// SDS §5.4). It records job status on the Job so Jobs() can report it (#37)
+// and hands the final Result to any registered hooks (#39).
 func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 	fn := func(ctx context.Context) error {
 		if !j.overlap {
@@ -110,7 +121,27 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 		ctx = WithIdempotencyKey(ctx, deriveIdempotencyKey(s.opts.namespace, j.name, fireAt))
 		return j.fn(ctx)
 	}
-	s.group.Go(s.termCtx, j.name, executor.Func(fn), j.retry, s.opts.logger)
+	// Snapshot status under statusMu (guarded separately from s.mu since the
+	// callback runs on the executor goroutine, not the loop goroutine).
+	j.statusMu.Lock()
+	j.running = true
+	j.lastError = ""
+	j.statusMu.Unlock()
+	s.opts.rec.JobStarted(j.name)
+
+	onComplete := func(res executor.Result) {
+		j.statusMu.Lock()
+		j.running = false
+		j.lastOutcome = res.Outcome.String()
+		j.lastDuration = res.Duration
+		if res.Error != nil {
+			j.lastError = res.Error.Error()
+		}
+		j.statusMu.Unlock()
+		s.opts.rec.JobFinished(j.name, outcomeToMetric(res.Outcome), res.Duration, res.Outcome == executor.OutcomeOK)
+		s.fireHooks(res)
+	}
+	s.group.Go(s.termCtx, j.name, executor.Func(fn), j.retry, s.opts.logger, onComplete)
 }
 
 // deriveIdempotencyKey derives the deterministic key for one execution of job in
@@ -135,4 +166,24 @@ func (s *Scheduler) jitteredPoll() time.Duration {
 	}
 	j := d / 5
 	return d - j + time.Duration(rand.Int64N(2*int64(j)))
+}
+
+// outcomeToMetric maps an executor Outcome onto the metrics package's Outcome
+// enum (issue #36). The metrics labels use "success"|"failed"|"panicked"|
+// "timeout"|"canceled" per SDS §11.
+func outcomeToMetric(o executor.Outcome) metrics.Outcome {
+	switch o {
+	case executor.OutcomeOK:
+		return metrics.OutcomeOK
+	case executor.OutcomeFailed:
+		return metrics.OutcomeFailed
+	case executor.OutcomePanicked:
+		return metrics.OutcomePanicked
+	case executor.OutcomeTimedOut:
+		return metrics.OutcomeTimedOut
+	case executor.OutcomeCanceled:
+		return metrics.OutcomeCanceled
+	default:
+		return metrics.OutcomeUnknown
+	}
 }

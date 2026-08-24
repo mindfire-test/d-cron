@@ -101,6 +101,34 @@ func (s IntervalSchedule) Next(t time.Time) time.Time {
 	return t.In(s.loc).Add(s.d)
 }
 
+// OnceSchedule fires at one instant and never again: Next returns at for the
+// first query strictly before it, and the zero time afterwards so the heap
+// evicts the entry (issue #33, FR-209). The zero time is the established
+// "never again" signal (SDS §4 table row 3).
+type OnceSchedule struct {
+	at  time.Time
+	loc *time.Location
+}
+
+// NewOnce returns a OnceSchedule that fires once at at, interpreted in loc
+// (UTC when nil).
+func NewOnce(at time.Time, loc *time.Location) OnceSchedule {
+	if loc == nil {
+		loc = time.UTC
+	}
+	return OnceSchedule{at: at.In(loc), loc: loc}
+}
+
+// Next implements Schedule: at for any t strictly before the fire instant,
+// the zero time on or after it.
+func (s OnceSchedule) Next(t time.Time) time.Time {
+	now := t.In(s.loc)
+	if !s.at.After(now) {
+		return time.Time{}
+	}
+	return s.at
+}
+
 // Cron field bounds.
 const (
 	minMinute = 0
