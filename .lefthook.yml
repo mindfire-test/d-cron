@@ -13,6 +13,9 @@
 #
 pre-commit:
   parallel: true
+  # Staged-file base explicit; lefthook otherwise falls back to a local
+  # 'main' branch, which we no longer keep (see pre-push note below).
+  files: git diff --cached --name-only
   commands:
     format:
       glob: "*.go"
