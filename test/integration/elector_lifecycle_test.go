@@ -36,7 +36,8 @@ func TestLeaderFailover_PromotesExactlyOneStandby(t *testing.T) {
 	ctx := context.Background()
 	ns := "it-failover"
 
-	leader, err := dcron.New(mustOpen(t),
+	leader, err := dcron.New(
+		mustOpen(t),
 		dcron.WithNamespace(ns),
 		dcron.WithSessionStableConnection(),
 		dcron.WithPollInterval(20*time.Millisecond),
@@ -46,7 +47,8 @@ func TestLeaderFailover_PromotesExactlyOneStandby(t *testing.T) {
 		t.Fatalf("leader New: %v", err)
 	}
 	standbyDB := mustOpen(t)
-	standby, err := dcron.New(standbyDB,
+	standby, err := dcron.New(
+		standbyDB,
 		dcron.WithNamespace(ns),
 		dcron.WithSessionStableConnection(),
 		dcron.WithPollInterval(20*time.Millisecond),

@@ -17,7 +17,8 @@ func TestAC09_ZeroTablesAfterLifecycle(t *testing.T) {
 	ctx := context.Background()
 	db := mustOpen(t)
 
-	s, err := dcron.New(db,
+	s, err := dcron.New(
+		db,
 		dcron.WithNamespace("it-ac09"),
 		dcron.WithSessionStableConnection(),
 		dcron.WithPollInterval(20*time.Millisecond),
