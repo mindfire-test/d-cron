@@ -35,6 +35,11 @@ commit-msg:
 
 pre-push:
   parallel: true
+  # Base push file detection on the trunk (origin/development) instead of a
+  # local 'main' branch. We keep only the 'development' branch locally, so the
+  # legacy `git diff ... main` default would fail (fatal: bad revision 'main').
+  # Commands run whenever there is a diff vs the trunk.
+  files: git diff --name-only origin/development HEAD
   commands:
     build:
       run: go build ./...
