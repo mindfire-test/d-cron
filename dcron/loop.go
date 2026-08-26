@@ -127,6 +127,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 		if !j.overlap {
 			defer j.busy.Unlock()
 		}
+		ctx = WithNamespaceKey(ctx, s.opts.namespace)
 		ctx = WithEpoch(ctx, epoch)
 		ctx = WithIdempotencyKey(ctx, DeriveIdempotencyKey(s.opts.namespace, j.name, fireAt))
 		recordOnce.Do(func() {
