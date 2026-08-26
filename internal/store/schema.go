@@ -43,6 +43,12 @@ func SchemaLockKey(schema string) int64 {
 func MigrationDDL(schema string) []string {
 	return []string{
 		`CREATE SCHEMA IF NOT EXISTS ` + schema,
+		`CREATE TABLE IF NOT EXISTS ` + schema + `.leader_epoch (
+			namespace   text PRIMARY KEY,
+			epoch       bigint      NOT NULL,
+			instance_id text        NOT NULL,
+			acquired_at timestamptz NOT NULL DEFAULT now()
+		)`,
 		`CREATE TABLE IF NOT EXISTS ` + schema + `.execution (
 			id            bigserial PRIMARY KEY,
 			namespace     text        NOT NULL,

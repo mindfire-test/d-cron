@@ -42,13 +42,13 @@ func TestMigrateRejectsInvalidSchemaWithoutDB(t *testing.T) {
 func TestMigrationDDLIsIdempotentAndQualified(t *testing.T) {
 	t.Parallel()
 	stmts := store.MigrationDDL("dcron")
-	if len(stmts) != 3 {
-		t.Fatalf("len(store.MigrationDDL) = %d; want 3 (schema, table, index)", len(stmts))
+	if len(stmts) != 4 {
+		t.Fatalf("len(store.MigrationDDL) = %d; want 4 (schema, epoch table, execution table, index)", len(stmts))
 	}
 	for i, want := range []string{
 		"CREATE SCHEMA IF NOT EXISTS dcron",
+		"CREATE TABLE IF NOT EXISTS dcron.leader_epoch",
 		"CREATE TABLE IF NOT EXISTS dcron.execution",
-
 		"CREATE INDEX IF NOT EXISTS execution_job_time_idx",
 	} {
 		if !strings.Contains(stmts[i], want) {
@@ -62,7 +62,7 @@ func TestMigrationDDLIsIdempotentAndQualified(t *testing.T) {
 		}
 	}
 
-	table := stmts[1]
+	table := stmts[2]
 	for _, col := range []string{
 		"id", "namespace", "job_name", "scheduled_at", "started_at",
 		"finished_at", "status", "attempt", "duration_ms", "error",
