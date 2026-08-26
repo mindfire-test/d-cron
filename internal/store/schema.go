@@ -63,7 +63,7 @@ func MigrationDDL(schema string) []string {
 			instance_id   text        NOT NULL,
 			leader_epoch  bigint      NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS ` + schema + `.execution_job_time_idx
+		`CREATE INDEX IF NOT EXISTS execution_job_time_idx
 			ON ` + schema + `.execution (namespace, job_name, scheduled_at DESC)`,
 	}
 }

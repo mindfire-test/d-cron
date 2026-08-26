@@ -12,7 +12,15 @@ import (
 const (
 	sqlPID     = `SELECT pg_backend_pid()`
 	sqlTryLock = `SELECT pg_try_advisory_lock($1), pg_backend_pid()`
-	sqlHolds   = `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND key1=$1 AND pid=pg_backend_pid())`
+	// pg_locks has no key1/key2 columns; the single-bigint advisory form is
+	// stored split as classid = int4(key>>32), objid = int4(key&0xFFFFFFFF)
+	// (PostgreSQL "Advisory Locks"). Both columns are int4, so widen them to
+	// bigint before comparing — comparing raw int4 against the (possibly
+	// negative) int8 halves silently never matches for negative keys.
+	sqlHolds = `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory'
+		AND classid::bigint = ($1::bigint >> 32)
+		AND objid::bigint = ($1::bigint & 4294967295)
+		AND pid = pg_backend_pid())`
 	sqlRelease = `SELECT pg_advisory_unlock($1)`
 )
 
