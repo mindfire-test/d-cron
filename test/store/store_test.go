@@ -50,7 +50,9 @@ func TestMigrationDDLIsIdempotentAndQualified(t *testing.T) {
 	for i, want := range []string{
 		"CREATE SCHEMA IF NOT EXISTS dcron",
 		"CREATE TABLE IF NOT EXISTS dcron.execution",
-		"CREATE INDEX IF NOT EXISTS dcron.execution_job_time_idx",
+		// The index NAME must be unqualified (PG rejects schema.name in
+		// CREATE INDEX IF NOT EXISTS); it lands in the table's schema.
+		"CREATE INDEX IF NOT EXISTS execution_job_time_idx",
 	} {
 		if !strings.Contains(stmts[i], want) {
 			t.Errorf("stmt[%d] = %q; want it to contain %q", i, stmts[i], want)
