@@ -168,9 +168,18 @@ func WithDedicatedLockConn(open func(ctx context.Context) (*sql.Conn, error)) Op
 // registered under the name "postgres" (lib/pq or pgx/stdlib); the dedicated
 // connection therefore bypasses any pooler the application uses.
 func WithDedicatedLockDSN(dsn string) Option {
+	return WithDedicatedLockDriver("postgres", dsn)
+}
+
+// WithDedicatedLockDriver is WithDedicatedLockDSN for drivers registered
+// under a different name — e.g. pgx via `_ "github.com/jackc/pgx/v5/stdlib"`
+// which registers "pgx" (issue #24). The application imports the driver, so
+// the core stays dependency-free (NFR-401); the dedicated connection still
+// bypasses any pooler and satisfies the session-stability gate.
+func WithDedicatedLockDriver(driverName, dsn string) Option {
 	return func(o *options) {
 		o.lockConn = func(ctx context.Context) (*sql.Conn, error) {
-			db, err := sql.Open("postgres", dsn)
+			db, err := sql.Open(driverName, dsn)
 			if err != nil {
 				return nil, err
 			}
