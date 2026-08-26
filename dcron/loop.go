@@ -238,7 +238,6 @@ func errorString(err error) string {
 	return err.Error()
 }
 
-// deriveIdempotencyKey derives the deterministic key for one execution of job in
 // DeriveIdempotencyKey returns the deterministic idempotency key issued to a
 // job firing for name in namespace at fireAt (SDS §5.4, issue #21):
 //
