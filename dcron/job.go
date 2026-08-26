@@ -32,6 +32,17 @@ const (
 	OverlapAllow
 )
 
+// MissedRunPolicy governs behaviour when scheduled fire times were missed
+// (e.g. during an outage or failover) (SDS §7.3, issue #45, FR-312).
+type MissedRunPolicy int
+
+const (
+	// MissedSkip skips missed fire times (default per SRS FR-312).
+	MissedSkip MissedRunPolicy = iota
+	// MissedCatchUp dispatches missed fire times within a lookback window up to a cap.
+	MissedCatchUp
+)
+
 type Job struct {
 	name          string
 	spec          string
@@ -41,6 +52,9 @@ type Job struct {
 	overlap       bool
 	overlapPolicy OverlapPolicy
 	queuedRun     bool
+	missedPolicy  MissedRunPolicy
+	maxLookback   time.Duration
+	maxCatchUp    int
 	busy          sync.Mutex
 
 	statusMu     sync.Mutex
@@ -119,4 +133,20 @@ func WithOverlapPolicy(p OverlapPolicy) JobOption {
 		j.overlapPolicy = p
 		j.overlap = (p == OverlapAllow)
 	}
+}
+
+// WithMissedRunPolicy sets the missed-run policy for a job (SDS §7.3, issue #45, FR-312).
+// Options are MissedSkip (default) and MissedCatchUp.
+func WithMissedRunPolicy(p MissedRunPolicy) JobOption {
+	return func(j *Job) { j.missedPolicy = p }
+}
+
+// WithMaxLookback caps how far back in time MissedCatchUp will search for missed runs.
+func WithMaxLookback(d time.Duration) JobOption {
+	return func(j *Job) { j.maxLookback = d }
+}
+
+// WithMaxCatchUpRuns caps the maximum number of catch-up executions dispatched for a job.
+func WithMaxCatchUpRuns(maxRuns int) JobOption {
+	return func(j *Job) { j.maxCatchUp = maxRuns }
 }
