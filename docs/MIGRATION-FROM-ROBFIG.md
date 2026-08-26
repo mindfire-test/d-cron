@@ -65,7 +65,7 @@ dies.
 | `cron.WithLocation(loc)` | `dcron.WithLocation(loc)` | Same semantics; default UTC in both |
 | `cron.WithSeconds()` parser option | `dcron.WithSecondsField()` | Opt-in 6-field specs; default is 5-field in both libraries |
 | `cron.WithChain(cron.Recover(...))` | built-in | Panics are recovered per attempt, reported as outcome `panicked`, and retried like any failure |
-| `cron.WithChain(cron.DelayIfStillRunning)` | `dcron.WithOverlap(false)` | Per-job overlap control; both libraries default to allowing overlap |
+| `cron.WithChain(cron.DelayIfStillRunning)` | `dcron.WithNoOverlap()` | Per-job option; suppresses a fire while the previous run is still active (both libraries default to allowing overlap) |
 | custom retry wrappers | `dcron.WithRetry(dcron.Retry{...})` | Exponential backoff + jitter built in; bounded by job context |
 | one-off schedules / custom `Schedule` | `sched.AddOnce(name, when, fn)` | First-class single fire; heap evicts after it runs |
 | `c.AddFunc(spec, fn)` | `sched.Add(name, spec, fn)` | Jobs are **named**; names feed metrics, history, hooks, and idempotency keys |
