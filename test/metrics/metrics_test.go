@@ -12,10 +12,6 @@ import (
 // (dcron + internal/*) must never import a metrics SDK. The seam is the
 // Recorder interface in this package; an application bridges it to whatever
 // registry it owns. If this test fails, observability leaked into the core.
-// TestCoreDoesNotLinkMetricsSDK enforces NFR-402 / D-08: the scheduler core
-// (dcron + internal/*) must never import a metrics SDK. The seam is the
-// Recorder interface in this package; an application bridges it to whatever
-// registry it owns. If this test fails, observability leaked into the core.
 func TestCoreDoesNotLinkMetricsSDK(t *testing.T) {
 	t.Parallel()
 	banned := []string{"prometheus/client_golang", "go.opentelemetry.io", "github.com/prometheus"}
