@@ -1,0 +1,107 @@
+# CodeRabbit configuration for d-cron.
+#
+# Reviewed 2026-08-26 against the current repo layout: docs live under docs/,
+# all tests under test/ (external _test packages), examples are self-contained
+# Go modules. The old root-level *_test.go guidance is gone because no such
+# files exist anymore.
+#
+#   Docs: https://docs.coderabbit.ai/reference/configuration-template
+language: en-US
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+  review_status: true
+  commit_status: true
+  fail_commit_status: false
+  collapse_walkthrough: false
+  changed_files_summary: false
+  sequence_diagrams: false
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: false
+  related_tests: false
+  suggested_labels: false
+  auto_apply_labels: false
+  suggested_reviewers: false
+  poem: false
+  labeling_instructions:
+    - label: area/scheduler
+      instructions: Touches dcron/ (leadership loop, Add/AddOnce, Start/Stop).
+    - label: area/elector
+      instructions: Touches internal/elector (advisory-lock state machine, gates).
+    - label: area/executor
+      instructions: Touches internal/executor (Run, retry/backoff, Group drain).
+    - label: area/store
+      instructions: Touches internal/store (history schema, migrations).
+    - label: area/docs
+      instructions: Only markdown under docs/.
+    - label: area/tests
+      instructions: Only files under test/.
+  path_filters:
+    - "!**/.git/**"
+    - "!**/dist/**"
+    - "!**/*.sum"
+  path_instructions:
+    - path: "dcron/**/*.go"
+      instructions: >-
+        Public API surface of the library. Enforce: every exported identifier
+        has a godoc comment naming its issue/SDS reference; internal types
+        never leak into exported signatures (NFR-403); options follow the
+        WithX functional pattern; errors wrap the sentinels in errors.go via
+        %w so errors.Is keeps working; contexts are always respected and never
+        stored beyond their scope. Scheduler is not goroutine-safe — flag any
+        unlocked shared-state access outside s.mu.
+    - path: "internal/**/*.go"
+      instructions: >-
+        Internal packages may change freely but must stay dependency-free
+        (NFR-401): reject ANY new require in go.mod. database/sql only for
+        storage access — no driver imports anywhere in core. Advisory-lock
+        semantics are safety-critical: check every SQL statement against SDS §3
+        (single dedicated conn, session stability, unlock→drain→close order)
+        before approving.
+    - path: "internal/store/**/*.go"
+      instructions: >-
+        History layer (#34/#35). Schema names must pass the allowlist in
+        schema.go — never interpolate user input into DDL. Every DDL statement
+        must be idempotent (IF NOT EXISTS) and run under the separate migration
+        advisory lock (SchemaLockKey domain). History write failures must be
+        logged and swallowed, never propagated to job execution (SDS §10).
+    - path: "test/**/*_test.go"
+      instructions: >-
+        External black-box tests living OUTSIDE the packages they exercise
+        (package xxx_test importing the real package) — they must only use
+        EXPORTED identifiers. Reject white-box field pokes or unexported symbol
+        use. Tests must clean up schedulers with Stop(ctx) to avoid goroutine
+        leaks, use waitFor-style polling instead of bare sleeps, and keep
+        timing budgets generous enough for CI race-detector slowdowns (~10x).
+    - path: "examples/**/*.go"
+      instructions: >-
+        Examples teach by copy-paste. Each example directory is its own module
+        (own go.mod + replace directive) precisely so example-only third-party
+        deps NEVER land in the root zero-dependency go.mod — reject any PR that
+        adds requires to the ROOT go.mod. Examples must show graceful shutdown
+        (signal -> Stop(drain)) and must not invent auth where FR-408 says the
+        host app owns it.
+    - path: "docs/**/*.md"
+      instructions: >-
+        Documentation is load-bearing for credibility (#30). Never allow
+        "exactly-once" claims about execution semantics (SRS §6.2 forbids it;
+        correct model: at-most-once normally, at-least-once with catch-up under
+        failure). Keepalive/PgBouncer warnings belong inline in quickstarts,
+        not appendices.
+
+chats:
+  auto_reply: true
+
+knowledge_base:
+  opt_out: false
+  learnings:
+    scope: local
+  issues:
+    scope: local
+  pull_requests:
+    scope: local
