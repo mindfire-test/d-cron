@@ -327,4 +327,29 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 _Example_: `feat(elector): add postgres advisory lock acquirer`
 
+### Branching Model
+
+One branch **per feature**, cut from the latest `development` — never a
+phase-wide branch bundling unrelated work. Branch names mirror the
+conventional-commit type/scope:
+
+```
+<type>/<feature-scope>        e.g. feat/pgx-support, test/integration-testcontainers,
+                                   docs/godoc-sweep, fix/history-write-path
+```
+
+Rules of thumb:
+
+- `feat/<pkg-or-capability>` — new user-facing capability (one issue or one
+  cohesive package; if it spans two independent issues, that is two branches).
+- `fix/<area>` — defect fix.
+- `test/<what-is-tested>` — test-only harnesses and suites (e.g. the
+  testcontainers integration suite).
+- `docs/<what-is-documented>` — documentation-only changes.
+
+Work flow: `git checkout development && git pull` → `git switch -c
+<type>/<scope>` → commit (hooks run fmt/lint/build + conventional-commit) →
+push → PR back into `development`. Keep the branch scoped: if a PR's diff
+spans features, split it.
+
 ---
