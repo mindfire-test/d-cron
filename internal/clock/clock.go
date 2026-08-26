@@ -98,6 +98,21 @@ func (s IntervalSchedule) Next(t time.Time) time.Time {
 	return t.In(s.loc).Add(s.d)
 }
 
+// SinceSuccessSchedule fires at a fixed duration after the completion of the
+// last successful execution (issue #46, FR-210).
+type SinceSuccessSchedule struct {
+	Interval time.Duration
+	Loc      *time.Location
+}
+
+// Next implements Schedule.
+func (s SinceSuccessSchedule) Next(t time.Time) time.Time {
+	if s.Loc == nil {
+		return t.Add(s.Interval)
+	}
+	return t.In(s.Loc).Add(s.Interval)
+}
+
 // OnceSchedule fires at one instant and never again: Next returns at for the
 // first query strictly before it, and the zero time afterwards so the heap
 // evicts the entry (issue #33, FR-209). The zero time is the established
