@@ -19,6 +19,7 @@ import (
 	"time"
 
 	dcron "github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfire-test/d-cron/internal/store"
 	"github.com/mindfire-test/d-cron/metrics"
 	"github.com/mindfire-test/d-cron/ui"
 	// Register your PostgreSQL driver here, e.g. `_ "github.com/lib/pq"`.
@@ -29,6 +30,26 @@ import (
 // metric names to register are exported from the metrics package as Key*.
 type promRecorder struct {
 	metrics.Noop
+}
+
+// jobRows snapshots the scheduler's registered jobs for the dashboard's jobs
+// table (dcron.JobStatus -> ui.JobRow).
+func jobRows(s *dcron.Scheduler) []ui.JobRow {
+	statuses := s.Jobs()
+	rows := make([]ui.JobRow, 0, len(statuses))
+	for _, st := range statuses {
+		rows = append(rows, ui.JobRow{
+			Name:           st.Name,
+			Spec:           st.Spec,
+			NextRun:        st.NextRun,
+			LastRun:        st.LastRun,
+			LastOutcome:    st.LastOutcome,
+			LastError:      st.LastError,
+			LastDurationMS: st.LastDuration.Milliseconds(),
+			Running:        st.Running,
+		})
+	}
+	return rows
 }
 
 func main() {
@@ -59,6 +80,15 @@ func main() {
 		log.Fatalf("Add: %v", err)
 	}
 
+	// History reader for the dashboard (issue #35/#38): the same handle shape
+	// the scheduler built internally via WithHistory. Recent() is read-only;
+	// a failed query must never take the dashboard down, so errors are logged
+	// and rendered as an empty panel.
+	hist, err := store.New(db, "dcron")
+	if err != nil {
+		log.Fatalf("history store: %v", err)
+	}
+
 	if err := sched.Start(context.Background()); err != nil {
 		log.Fatalf("Start: %v", err)
 	}
@@ -75,10 +105,30 @@ func main() {
 					LockKey:        sched.Key(),
 					Leadership:     sched.Leadership().String(),
 					HistoryEnabled: true,
-					Schema:         "dcron",
+					Schema:         hist.Schema(),
+					Jobs:           jobRows(sched),
 				}
 			},
-			nil, // wire ui history rows from store.Recent when desired
+			func(ctx context.Context) []ui.HistoryRow {
+				execs, err := hist.Recent(ctx, sched.Namespace(), "", 20)
+				if err != nil {
+					log.Printf("dashboard history: %v", err)
+					return nil
+				}
+				rows := make([]ui.HistoryRow, 0, len(execs))
+				for _, e := range execs {
+					rows = append(rows, ui.HistoryRow{
+						ScheduledAt: e.ScheduledAt,
+						Job:         e.JobName,
+						Status:      string(e.Status),
+						Attempt:     e.Attempt,
+						DurationMS:  e.DurationMs,
+						InstanceID:  e.InstanceID,
+						Error:       e.Error,
+					})
+				}
+				return rows
+			},
 		)))
 	srv := &http.Server{Addr: ":8080", Handler: mux}
 	go func() {
