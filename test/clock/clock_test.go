@@ -1,9 +1,11 @@
-package clock
+package clock_test
 
 import (
 	"container/heap"
 	"testing"
 	"time"
+
+	"github.com/mindfire-test/d-cron/internal/clock"
 )
 
 func ts(y, mo, d, h, mi int) time.Time {
@@ -21,8 +23,8 @@ func TestParseInvalid(t *testing.T) {
 		"61 * * * *", "* * * * abc", "0 0 32 * *", "* * * *",
 	}
 	for _, expr := range invalid {
-		if _, err := Parse(expr, time.UTC); err == nil {
-			t.Errorf("Parse(%q): expected an error", expr)
+		if _, err := clock.Parse(expr, time.UTC); err == nil {
+			t.Errorf("clock.Parse(%q): expected an error", expr)
 		}
 	}
 }
@@ -31,8 +33,8 @@ func TestParseInvalidSeconds(t *testing.T) {
 	t.Parallel()
 	// 5-field expressions are rejected by the 6-field parser.
 	for _, expr := range []string{"0 0 * * *", "* * *", "0 0 0 * * * *"} {
-		if _, err := ParseSeconds(expr, time.UTC); err == nil {
-			t.Errorf("ParseSeconds(%q): expected an error", expr)
+		if _, err := clock.ParseSeconds(expr, time.UTC); err == nil {
+			t.Errorf("clock.ParseSeconds(%q): expected an error", expr)
 		}
 	}
 }
@@ -54,9 +56,9 @@ func TestCronNext(t *testing.T) {
 		{"5/10 * * * *", ts(2024, 1, 1, 0, 0), ts(2024, 1, 1, 0, 5)},
 	}
 	for _, tc := range cases {
-		s, err := Parse(tc.expr, time.UTC)
+		s, err := clock.Parse(tc.expr, time.UTC)
 		if err != nil {
-			t.Fatalf("Parse(%q): %v", tc.expr, err)
+			t.Fatalf("clock.Parse(%q): %v", tc.expr, err)
 		}
 		got := s.Next(tc.from)
 		if !got.Equal(tc.want) {
@@ -67,7 +69,7 @@ func TestCronNext(t *testing.T) {
 
 func TestCronNextMonotonic(t *testing.T) {
 	t.Parallel()
-	s, err := Parse("*/30 * * * *", time.UTC)
+	s, err := clock.Parse("*/30 * * * *", time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +85,7 @@ func TestCronNextMonotonic(t *testing.T) {
 
 func TestIntervalNext(t *testing.T) {
 	t.Parallel()
-	s, err := Parse("@every 10m", time.UTC)
+	s, err := clock.Parse("@every 10m", time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,10 +98,10 @@ func TestIntervalNext(t *testing.T) {
 
 func TestQueueNextDue(t *testing.T) {
 	t.Parallel()
-	q := &Queue{}
-	heap.Push(q, &Job{Name: "a", FireAt: ts(2024, 1, 1, 0, 5), Sched: nil})
-	heap.Push(q, &Job{Name: "b", FireAt: ts(2024, 1, 1, 0, 3), Sched: nil})
-	heap.Push(q, &Job{Name: "c", FireAt: ts(2024, 1, 1, 0, 9), Sched: nil})
+	q := &clock.Queue{}
+	heap.Push(q, &clock.Job{Name: "a", FireAt: ts(2024, 1, 1, 0, 5), Sched: nil})
+	heap.Push(q, &clock.Job{Name: "b", FireAt: ts(2024, 1, 1, 0, 3), Sched: nil})
+	heap.Push(q, &clock.Job{Name: "c", FireAt: ts(2024, 1, 1, 0, 9), Sched: nil})
 	now := ts(2024, 1, 1, 0, 6)
 	due := q.NextDue(now)
 	if len(due) != 2 {
@@ -108,8 +110,8 @@ func TestQueueNextDue(t *testing.T) {
 	if due[0].Name != "b" || due[1].Name != "a" {
 		t.Errorf("due order = %q, %q; want b, a", due[0].Name, due[1].Name)
 	}
-	if q.Len() != 1 || q.peek().Name != "c" {
-		t.Errorf("remaining queue is wrong: len=%d name=%q", q.Len(), q.peek().Name)
+	if q.Len() != 1 || q.Peek().Name != "c" {
+		t.Errorf("remaining queue is wrong: len=%d name=%q", q.Len(), q.Peek().Name)
 	}
 }
 
@@ -126,19 +128,19 @@ func TestParseDescriptors(t *testing.T) {
 	}
 	from := ts(2024, 1, 1, 0, 0)
 	for desc, expr := range cases {
-		s1, err := Parse(desc, time.UTC)
+		s1, err := clock.Parse(desc, time.UTC)
 		if err != nil {
-			t.Fatalf("Parse(%q): %v", desc, err)
+			t.Fatalf("clock.Parse(%q): %v", desc, err)
 		}
-		s2, err := Parse(expr, time.UTC)
+		s2, err := clock.Parse(expr, time.UTC)
 		if err != nil {
-			t.Fatalf("Parse(%q): %v", expr, err)
+			t.Fatalf("clock.Parse(%q): %v", expr, err)
 		}
 		if !s1.Next(from).Equal(s2.Next(from)) {
 			t.Errorf("%q and %q fire at different times", desc, expr)
 		}
 	}
-	if _, err := Parse("@bogus", time.UTC); err == nil {
+	if _, err := clock.Parse("@bogus", time.UTC); err == nil {
 		t.Error(`expected error for "@bogus"`)
 	}
 }
@@ -154,8 +156,8 @@ func TestParseNames(t *testing.T) {
 		"0 12 * * mon",
 		"0 0 * * Sun",
 	} {
-		if _, err := Parse(expr, time.UTC); err != nil {
-			t.Errorf("Parse(%q): %v", expr, err)
+		if _, err := clock.Parse(expr, time.UTC); err != nil {
+			t.Errorf("clock.Parse(%q): %v", expr, err)
 		}
 	}
 	for name, num := range map[string]string{
@@ -164,21 +166,21 @@ func TestParseNames(t *testing.T) {
 		"30 9 * * MON-FRI": "30 9 * * 1-5",
 	} {
 		from := ts(2024, 1, 1, 0, 0)
-		s1, err := Parse(name, time.UTC)
+		s1, err := clock.Parse(name, time.UTC)
 		if err != nil {
-			t.Fatalf("Parse(%q): %v", name, err)
+			t.Fatalf("clock.Parse(%q): %v", name, err)
 		}
-		s2, err := Parse(num, time.UTC)
+		s2, err := clock.Parse(num, time.UTC)
 		if err != nil {
-			t.Fatalf("Parse(%q): %v", num, err)
+			t.Fatalf("clock.Parse(%q): %v", num, err)
 		}
 		if !s1.Next(from).Equal(s2.Next(from)) {
 			t.Errorf("%q and %q fire at different times", name, num)
 		}
 	}
 	for _, bad := range []string{"0 0 1 xyz *", "0 0 * * friyay", "0 0 1 * * 8"} {
-		if _, err := Parse(bad, time.UTC); err == nil {
-			t.Errorf("Parse(%q): expected error", bad)
+		if _, err := clock.Parse(bad, time.UTC); err == nil {
+			t.Errorf("clock.Parse(%q): expected error", bad)
 		}
 	}
 }
@@ -196,27 +198,27 @@ func TestParseSeconds(t *testing.T) {
 		{"0 30 2 * jan *", tss(2024, 1, 1, 0, 0, 0), tss(2024, 1, 1, 2, 30, 0)},
 	}
 	for _, tc := range cases {
-		s, err := ParseSeconds(tc.expr, time.UTC)
+		s, err := clock.ParseSeconds(tc.expr, time.UTC)
 		if err != nil {
-			t.Fatalf("ParseSeconds(%q): %v", tc.expr, err)
+			t.Fatalf("clock.ParseSeconds(%q): %v", tc.expr, err)
 		}
 		if got := s.Next(tc.from); !got.Equal(tc.want) {
-			t.Errorf("ParseSeconds(%q).Next(%s) = %s; want %s", tc.expr, tc.from, got, tc.want)
+			t.Errorf("clock.ParseSeconds(%q).Next(%s) = %s; want %s", tc.expr, tc.from, got, tc.want)
 		}
 	}
 	// descriptors route through ParseSeconds unchanged (no seconds field)
-	d, err := ParseSeconds("@daily", time.UTC)
+	d, err := clock.ParseSeconds("@daily", time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := d.Next(ts(2024, 1, 1, 0, 0)); !got.Equal(ts(2024, 1, 2, 0, 0)) {
-		t.Errorf("ParseSeconds(@daily).Next = %s; want 2024-01-02 00:00", got)
+		t.Errorf("clock.ParseSeconds(@daily).Next = %s; want 2024-01-02 00:00", got)
 	}
 }
 
 func TestCronNextFeb29(t *testing.T) {
 	t.Parallel()
-	s, err := Parse("0 0 29 2 *", time.UTC) // fires only on Feb 29
+	s, err := clock.Parse("0 0 29 2 *", time.UTC) // fires only on Feb 29
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,16 +241,16 @@ func TestCronNextDST(t *testing.T) {
 		t.Skipf("no tzdata available: %v", err)
 	}
 	mar10 := time.Date(2024, 3, 10, 0, 0, 0, 0, loc)
-	skipped, _ := Parse("0 2 * * *", loc)
+	skipped, _ := clock.Parse("0 2 * * *", loc)
 	if got := skipped.Next(mar10); !got.Equal(time.Date(2024, 3, 11, 2, 0, 0, 0, loc)) {
 		t.Errorf("skipped 02:00 on spring-forward: Next = %s; want 2024-03-11 02:00", got)
 	}
-	exists, _ := Parse("0 3 * * *", loc)
+	exists, _ := clock.Parse("0 3 * * *", loc)
 	if got := exists.Next(mar10); !got.Equal(time.Date(2024, 3, 10, 3, 0, 0, 0, loc)) {
 		t.Errorf("03:00 on spring-forward day: Next = %s; want 2024-03-10 03:00", got)
 	}
 	nov02 := time.Date(2024, 11, 2, 23, 0, 0, 0, loc)
-	first, _ := Parse("0 1 * * *", loc)
+	first, _ := clock.Parse("0 1 * * *", loc)
 	if got := first.Next(nov02); !got.Equal(time.Date(2024, 11, 3, 1, 0, 0, 0, loc)) {
 		t.Errorf("first 01:00 on fall-back: Next = %s; want 2024-11-03 01:00 EDT", got)
 	}
@@ -269,21 +271,21 @@ func FuzzParse(f *testing.F) {
 	f.Fuzz(func(t *testing.T, expr string, withSec bool) {
 		from := ts(2024, 1, 1, 0, 0)
 		var (
-			s1, s2 Schedule
+			s1, s2 clock.Schedule
 			err    error
 		)
 		if withSec {
-			s1, err = ParseSeconds(expr, time.UTC)
+			s1, err = clock.ParseSeconds(expr, time.UTC)
 		} else {
-			s1, err = Parse(expr, time.UTC)
+			s1, err = clock.Parse(expr, time.UTC)
 		}
 		if err != nil {
 			return
 		}
 		if withSec {
-			s2, err = ParseSeconds(expr, time.UTC)
+			s2, err = clock.ParseSeconds(expr, time.UTC)
 		} else {
-			s2, err = Parse(expr, time.UTC)
+			s2, err = clock.Parse(expr, time.UTC)
 		}
 		if err != nil {
 			t.Fatalf("re-parse failed: %v", err)

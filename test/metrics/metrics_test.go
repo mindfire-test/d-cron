@@ -1,4 +1,4 @@
-package metrics
+package metrics_test
 
 import (
 	"io/fs"
@@ -19,7 +19,7 @@ import (
 func TestCoreDoesNotLinkMetricsSDK(t *testing.T) {
 	t.Parallel()
 	banned := []string{"prometheus/client_golang", "go.opentelemetry.io", "github.com/prometheus"}
-	roots := []string{"../dcron", "../internal"}
+	roots := []string{"../../dcron", "../../internal"}
 	for _, root := range roots {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {

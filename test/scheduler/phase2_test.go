@@ -1,4 +1,4 @@
-package dcron
+package dcron_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mindfire-test/d-cron/dcron"
 	"github.com/mindfire-test/d-cron/internal/executor"
 	"github.com/mindfire-test/d-cron/metrics"
 )
@@ -61,7 +62,7 @@ func waitFor(cond func() bool, what string) {
 }
 
 func TestAddOnceEvictsAfterFiring(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
+	s := testScheduler(newSchedBackend())
 	var fired atomic.Int64
 	at := time.Now().Add(500 * time.Millisecond)
 	if err := s.AddOnce("wallclock", at, func(context.Context) error {
@@ -84,29 +85,29 @@ func TestAddOnceEvictsAfterFiring(t *testing.T) {
 }
 
 func TestLeadershipThreeState(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
-	if got := s.Leadership(); got != LeadershipUnknown {
+	s := testScheduler(newSchedBackend())
+	if got := s.Leadership(); got != dcron.LeadershipUnknown {
 		t.Fatalf("pre-start Leadership = %v; want unknown", got)
 	}
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(func() bool { return s.Leadership() == LeadershipLeader }, "leadership to promote")
+	waitFor(func() bool { return s.Leadership() == dcron.LeadershipLeader }, "leadership to promote")
 	if err := s.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestHealthCheckNilDBPassthrough(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
+	s := testScheduler(newSchedBackend())
 	if err := s.HealthCheck(context.Background()); err != nil {
 		t.Fatalf("HealthCheck with no db: %v", err)
 	}
 }
 
 func TestJobsReportsRunOutcome(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
-	if err := s.Add("ok", "@every 1ms", func(context.Context) error { return nil }, WithRetry(Retry{Attempts: 1})); err != nil {
+	s := testScheduler(newSchedBackend())
+	if err := s.Add("ok", "@every 1ms", func(context.Context) error { return nil }, dcron.WithRetry(dcron.Retry{Attempts: 1})); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if err := s.Start(context.Background()); err != nil {
@@ -122,13 +123,13 @@ func TestJobsReportsRunOutcome(t *testing.T) {
 }
 
 func TestJobsReportsRunningFlag(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
+	s := testScheduler(newSchedBackend())
 	if err := s.Add("slow", "@every 2ms", func(_ context.Context) error {
 		for i := 0; i < 30_000_000; i++ {
 			_ = i
 		} // busy loop, ignores ctx
 		return nil
-	}, WithTimeout(10*time.Minute), WithRetry(Retry{Attempts: 1})); err != nil {
+	}, dcron.WithTimeout(10*time.Minute), dcron.WithRetry(dcron.Retry{Attempts: 1})); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if err := s.Start(context.Background()); err != nil {
@@ -145,13 +146,12 @@ func TestJobsReportsRunningFlag(t *testing.T) {
 
 func TestHooksInvokedOnCompletion(t *testing.T) {
 	var fired atomic.Int64
-	cfg := testCfg()
-	cfg.hooks = append(cfg.hooks, HookFunc(func(_ context.Context, _ executor.Result) error {
+	hook := dcron.HookFunc(func(_ context.Context, _ executor.Result) error {
 		fired.Add(1)
 		return nil
-	}))
-	s := newWithBackend(newSchedBackend(), nil, cfg, nil)
-	if err := s.Add("henr", "@every 1ms", func(context.Context) error { return nil }, WithRetry(Retry{Attempts: 1})); err != nil {
+	})
+	s := testScheduler(newSchedBackend(), dcron.WithHooks(hook))
+	if err := s.Add("henr", "@every 1ms", func(context.Context) error { return nil }, dcron.WithRetry(dcron.Retry{Attempts: 1})); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if err := s.Start(context.Background()); err != nil {
@@ -168,10 +168,8 @@ func TestHooksInvokedOnCompletion(t *testing.T) {
 
 func TestMetricsRecorderReceivesSignals(t *testing.T) {
 	rec := newRecordingRecorder()
-	cfg := testCfg()
-	cfg.rec = rec
-	s := newWithBackend(newSchedBackend(), nil, cfg, nil)
-	if err := s.Add("job", "@every 1ms", func(context.Context) error { return nil }, WithRetry(Retry{Attempts: 1})); err != nil {
+	s := testScheduler(newSchedBackend(), dcron.WithMetrics(rec))
+	if err := s.Add("job", "@every 1ms", func(context.Context) error { return nil }, dcron.WithRetry(dcron.Retry{Attempts: 1})); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if err := s.Start(context.Background()); err != nil {
@@ -193,7 +191,7 @@ func TestMetricsRecorderReceivesSignals(t *testing.T) {
 }
 
 func TestWebhookHookConstruction(t *testing.T) {
-	w := WebhookHook{URL: "http://localhost:1/x"}
+	w := dcron.WebhookHook{URL: "http://localhost:1/x"}
 	if w.URL != "http://localhost:1/x" {
 		t.Fatalf("URL = %q", w.URL)
 	}
@@ -207,22 +205,22 @@ func TestWebhookHookConstruction(t *testing.T) {
 
 func errIs(err, target error) bool { return errors.Is(err, target) }
 func TestAddOnceRejectsPastTime(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
+	s := testScheduler(newSchedBackend())
 	noop := func(context.Context) error { return nil }
 	past := time.Now().Add(-time.Minute)
-	if err := s.AddOnce("expired", past, noop); !errIs(err, ErrInvalidSpec) {
-		t.Fatalf("AddOnce with past time err = %v; want ErrInvalidSpec", err)
+	if err := s.AddOnce("expired", past, noop); !errIs(err, dcron.ErrInvalidSpec) {
+		t.Fatalf("AddOnce with past time err = %v; want dcron.ErrInvalidSpec", err)
 	}
 }
 
 func TestAddOnceDuplicateName(t *testing.T) {
-	s := newWithBackend(newSchedBackend(), nil, testCfg(), nil)
+	s := testScheduler(newSchedBackend())
 	noop := func(context.Context) error { return nil }
 	at := time.Now().Add(time.Hour)
 	if err := s.AddOnce("dup", at, noop); err != nil {
 		t.Fatalf("AddOnce: %v", err)
 	}
-	if err := s.AddOnce("dup", at.Add(time.Hour), noop); !errIs(err, ErrJobExists) {
-		t.Fatalf("duplicate AddOnce err = %v; want ErrJobExists", err)
+	if err := s.AddOnce("dup", at.Add(time.Hour), noop); !errIs(err, dcron.ErrJobExists) {
+		t.Fatalf("duplicate AddOnce err = %v; want dcron.ErrJobExists", err)
 	}
 }

@@ -40,10 +40,12 @@ func (q *Queue) Pop() any {
 // once, or maintain it via Push/Pop).
 func (q *Queue) NextDue(now time.Time) []*Job {
 	var due []*Job
-	for q.Len() > 0 && !q.peek().FireAt.After(now) {
+	for q.Len() > 0 && !q.Peek().FireAt.After(now) {
 		due = append(due, heap.Pop(q).(*Job))
 	}
 	return due
 }
 
-func (q *Queue) peek() *Job { return (*q)[0] }
+// Peek returns the earliest-due job without removing it; it panics on an empty
+// queue like the other slice-indexing paths.
+func (q *Queue) Peek() *Job { return (*q)[0] }

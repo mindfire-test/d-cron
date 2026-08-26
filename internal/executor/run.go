@@ -43,12 +43,12 @@ func Run(ctx context.Context, name string, fn Func, retry Retry) Result {
 			return Result{Name: name, Outcome: OutcomeCanceled, Error: err, Attempts: attempt, Duration: time.Since(start)}
 		case OutcomeTimedOut:
 			if attempt < r.Attempts {
-				sleep(ctx, r.backoff(attempt))
+				sleep(ctx, r.Delay(attempt))
 				continue
 			}
 		default: // OutcomeFailed
 			if attempt < r.Attempts && r.Retryable(err) {
-				sleep(ctx, r.backoff(attempt))
+				sleep(ctx, r.Delay(attempt))
 				continue
 			}
 		}

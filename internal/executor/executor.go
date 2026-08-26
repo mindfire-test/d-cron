@@ -100,9 +100,10 @@ func (r Retry) withDefaults() Retry {
 	return r
 }
 
-// backoff returns the delay to wait before the next retry. attempt is the
-// 1-indexed number of failures seen so far.
-func (r Retry) backoff(attempt int) time.Duration {
+// Delay returns the delay to wait before the next retry. attempt is the
+// 1-indexed number of failures seen so far. Exported so callers and tests can
+// predict retry timing.
+func (r Retry) Delay(attempt int) time.Duration {
 	d := r.Backoff
 	if r.Factor > 1 {
 		d = time.Duration(float64(d) * math.Pow(r.Factor, float64(attempt)))

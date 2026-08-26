@@ -155,7 +155,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 			defer j.busy.Unlock()
 		}
 		ctx = WithEpoch(ctx, epoch)
-		ctx = WithIdempotencyKey(ctx, deriveIdempotencyKey(s.opts.namespace, j.name, fireAt))
+		ctx = WithIdempotencyKey(ctx, DeriveIdempotencyKey(s.opts.namespace, j.name, fireAt))
 		recordOnce.Do(func() {
 			if s.store == nil {
 				return
@@ -239,13 +239,14 @@ func errorString(err error) string {
 }
 
 // deriveIdempotencyKey derives the deterministic key for one execution of job in
-// namespace at fireAt (SDS §5.4, issue #21):
+// DeriveIdempotencyKey returns the deterministic idempotency key issued to a
+// job firing for name in namespace at fireAt (SDS §5.4, issue #21):
 //
 //	sha256("d-cron:v1:" + namespace + ":" + jobName + ":" + fireTime.UTC().Format(RFC3339))
 //
 // Two replicas working the same fire time produce the same key, so a job can
 // deduplicate downstream effects (e.g. a payment provider's idempotency header).
-func deriveIdempotencyKey(namespace, name string, fireAt time.Time) string {
+func DeriveIdempotencyKey(namespace, name string, fireAt time.Time) string {
 	s := "d-cron:v1:" + namespace + ":" + name + ":" + fireAt.UTC().Format(time.RFC3339)
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])

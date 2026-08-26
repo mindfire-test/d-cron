@@ -1,4 +1,4 @@
-package ui
+package ui_test
 
 import (
 	"context"
@@ -6,19 +6,21 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mindfire-test/d-cron/ui"
 )
 
 func TestHandlerRendersOverviewAndJobs(t *testing.T) {
 	t.Parallel()
-	overview := func() Overview {
-		return Overview{
+	overview := func() ui.Overview {
+		return ui.Overview{
 			Namespace:      "billing",
 			InstanceID:     "deadbeef",
 			LockKey:        -7300000000000000000,
 			Leadership:     "leader",
 			HistoryEnabled: true,
 			Schema:         "dcron",
-			Jobs: []JobRow{{
+			Jobs: []ui.JobRow{{
 				Name:           "send-invoices",
 				Spec:           "0 2 * * *",
 				NextRun:        time.Date(2026, 8, 20, 2, 0, 0, 0, time.UTC),
@@ -28,7 +30,7 @@ func TestHandlerRendersOverviewAndJobs(t *testing.T) {
 			}},
 		}
 	}
-	h := Handler(func() Overview { return overview() }, nil)
+	h := ui.Handler(func() ui.Overview { return overview() }, nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 	h.ServeHTTP(rec, req)
@@ -49,8 +51,8 @@ func TestHandlerRendersOverviewAndJobs(t *testing.T) {
 
 func TestHandlerRendersHistory(t *testing.T) {
 	t.Parallel()
-	recent := func(_ context.Context) []HistoryRow {
-		return []HistoryRow{{
+	recent := func(_ context.Context) []ui.HistoryRow {
+		return []ui.HistoryRow{{
 			ScheduledAt: time.Date(2026, 8, 19, 2, 0, 0, 0, time.UTC),
 			Job:         "send-invoices",
 			Status:      "failed",
@@ -60,7 +62,7 @@ func TestHandlerRendersHistory(t *testing.T) {
 			Error:       "boom",
 		}}
 	}
-	h := Handler(func() Overview { return Overview{Leadership: "standby"} }, recent)
+	h := ui.Handler(func() ui.Overview { return ui.Overview{Leadership: "standby"} }, recent)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 	for _, want := range []string{"send-invoices", "failed", "boom", "cafe"} {
@@ -73,10 +75,10 @@ func TestHandlerRendersHistory(t *testing.T) {
 func TestHandlerEscapesJobNames(t *testing.T) {
 	t.Parallel()
 	// A job name is caller data: it MUST be escaped, not interpreted (#38).
-	h := Handler(func() Overview {
-		return Overview{Leadership: "unknown"}
-	}, func(context.Context) []HistoryRow {
-		return []HistoryRow{{Job: "<script>alert(1)</script>", Status: "ok"}}
+	h := ui.Handler(func() ui.Overview {
+		return ui.Overview{Leadership: "unknown"}
+	}, func(context.Context) []ui.HistoryRow {
+		return []ui.HistoryRow{{Job: "<script>alert(1)</script>", Status: "ok"}}
 	})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
@@ -91,7 +93,7 @@ func TestHandlerEscapesJobNames(t *testing.T) {
 
 func TestHandlerEmptyStates(t *testing.T) {
 	t.Parallel()
-	h := Handler(func() Overview { return Overview{Leadership: "standby"} }, nil)
+	h := ui.Handler(func() ui.Overview { return ui.Overview{Leadership: "standby"} }, nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 	body := rec.Body.String()

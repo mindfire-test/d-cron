@@ -1,4 +1,4 @@
-package elector
+package elector_test
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/mindfire-test/d-cron/internal/elector"
 )
 
 func testLogger() *slog.Logger {
@@ -83,14 +85,14 @@ func (f *fakeBackend) Release(ctx context.Context, _ int64) (bool, error) {
 func (f *fakeBackend) Close() error { return nil }
 
 func TestLockKeyDeterministic(t *testing.T) {
-	a := LockKey("billing")
+	a := elector.LockKey("billing")
 	if a == 0 {
-		t.Fatalf("LockKey must never be zero")
+		t.Fatalf("elector.LockKey must never be zero")
 	}
-	if b := LockKey("billing"); b != a {
-		t.Fatalf("LockKey not deterministic: %d != %d", b, a)
+	if b := elector.LockKey("billing"); b != a {
+		t.Fatalf("elector.LockKey not deterministic: %d != %d", b, a)
 	}
-	if c := LockKey("notifications"); c == a {
+	if c := elector.LockKey("notifications"); c == a {
 		t.Fatalf("different namespaces must yield different keys")
 	}
 }
@@ -99,25 +101,25 @@ func TestLockKeyEmptyAndUnicode(t *testing.T) {
 	// The default namespace "default" and empty/unicode namespaces must all
 	// resolve deterministically to non-zero keys (issue #6).
 	for _, ns := range []string{"", "default", "ümlaut-namespace", "🎉", "\x00control"} {
-		if got := LockKey(ns); got == 0 {
-			t.Errorf("LockKey(%q) = 0; must never be zero", ns)
+		if got := elector.LockKey(ns); got == 0 {
+			t.Errorf("elector.LockKey(%q) = 0; must never be zero", ns)
 		}
-		if again := LockKey(ns); again != LockKey(ns) {
-			t.Errorf("LockKey(%q) not deterministic", ns)
+		if again := elector.LockKey(ns); again != elector.LockKey(ns) {
+			t.Errorf("elector.LockKey(%q) not deterministic", ns)
 		}
 	}
-	if LockKey("") == LockKey("default") {
+	if elector.LockKey("") == elector.LockKey("default") {
 		t.Fatal("empty namespace must not collide with the default namespace")
 	}
 }
 
 func TestAcquirePromotesStandby(t *testing.T) {
-	e := New("ns", "test", newFakeBackend(), testLogger())
+	e := elector.New("ns", "test", newFakeBackend(), testLogger())
 	promoted, epoch, err := e.Acquire(context.Background())
 	if err != nil || !promoted || epoch != 1 {
 		t.Fatalf("Acquire(_, _) = %v, %d, %v; want true, 1, nil", promoted, epoch, err)
 	}
-	if got := e.State(); got != StateLeader {
+	if got := e.State(); got != elector.StateLeader {
 		t.Fatalf("State() = %s; want leader", got)
 	}
 	if e.Epoch() != 1 {
@@ -127,7 +129,7 @@ func TestAcquirePromotesStandby(t *testing.T) {
 
 func TestAcquireReconfirmsLeaderWithoutEpochBump(t *testing.T) {
 	fb := newFakeBackend()
-	e := New("ns", "test", fb, testLogger())
+	e := elector.New("ns", "test", fb, testLogger())
 
 	if _, _, err := e.Acquire(context.Background()); err != nil {
 		t.Fatal(err)
@@ -146,30 +148,32 @@ func TestAcquireReconfirmsLeaderWithoutEpochBump(t *testing.T) {
 
 func TestAcquireDemotesOnLostLock(t *testing.T) {
 	fb := newFakeBackend()
+	e := elector.New("ns", "test", fb, testLogger())
+	// Promote to leader first (black-box), then simulate the backend losing
+	// the lock so the next Acquire must demote.
+	if _, _, err := e.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	fb.held = false // conn no longer holds the lock (lost it)
-	e := New("ns", "test", fb, testLogger())
-	e.state = StateLeader
-	e.epoch = 1
-	e.pid = 7
 	sub := e.Subscribe()
 
 	promoted, epoch, err := e.Acquire(context.Background())
 	if err != nil || promoted {
 		t.Fatalf("Acquire after lost lock = %v, %d, %v; want false, bumped epoch, nil", promoted, epoch, err)
 	}
-	if got := e.State(); got != StateDemoting {
+	if got := e.State(); got != elector.StateDemoting {
 		t.Fatalf("State() = %s; want demoting (LEADER -> DEMOTING)", got)
 	}
 	if e.Epoch() != 2 {
 		t.Fatalf("Epoch should be bumped on demotion (fence): got %d, want 2", e.Epoch())
 	}
 	e.FinalizeDemotion()
-	if got := e.State(); got != StateStandby {
+	if got := e.State(); got != elector.StateStandby {
 		t.Fatalf("State() after FinalizeDemotion = %s; want standby", got)
 	}
 
 	// The transition channel must carry LEADER->DEMOTING then DEMOTING->STANDBY.
-	var to []State
+	var to []elector.State
 	for len(to) < 2 {
 		select {
 		case t := <-sub:
@@ -178,26 +182,26 @@ func TestAcquireDemotesOnLostLock(t *testing.T) {
 			t.Fatal("timed out waiting for transition events")
 		}
 	}
-	if to[0] != StateDemoting || to[1] != StateStandby {
+	if to[0] != elector.StateDemoting || to[1] != elector.StateStandby {
 		t.Fatalf("transition targets = %v; want [demoting standby]", to)
 	}
 }
 
 func TestAcquireWaitsForLockWhenHeldByOther(t *testing.T) {
 	fb := &fakeBackend{held: true} // held by a different replica
-	e := New("ns", "test", fb, testLogger())
+	e := elector.New("ns", "test", fb, testLogger())
 	promoted, epoch, err := e.Acquire(context.Background())
 	if err != nil || promoted {
 		t.Fatalf("Acquire while held by other = %v, %d, %v; want false, 0, nil", promoted, epoch, err)
 	}
-	if got := e.State(); got != StateStandby {
+	if got := e.State(); got != elector.StateStandby {
 		t.Fatalf("State() = %s; want standby", got)
 	}
 }
 
 func TestEpochMonotonicAcrossPromotions(t *testing.T) {
 	fb := newFakeBackend()
-	e := New("ns", "test", fb, testLogger())
+	e := elector.New("ns", "test", fb, testLogger())
 	_, e1, err := e.Acquire(context.Background())
 	if err != nil || e1 != 1 {
 		t.Fatalf("first Acquire epoch = %d, err %v; want 1", e1, err)
@@ -213,7 +217,7 @@ func TestEpochMonotonicAcrossPromotions(t *testing.T) {
 
 func TestReleaseNoopAsStandby(t *testing.T) {
 	fb := newFakeBackend()
-	e := New("ns", "test", fb, testLogger())
+	e := elector.New("ns", "test", fb, testLogger())
 	if err := e.Release(context.Background()); err != nil {
 		t.Fatalf("Release as standby: %v", err)
 	}
@@ -224,7 +228,7 @@ func TestReleaseNoopAsStandby(t *testing.T) {
 
 func TestReleaseReleasesOnlyAsLeader(t *testing.T) {
 	fb := newFakeBackend()
-	e := New("ns", "test", fb, testLogger())
+	e := elector.New("ns", "test", fb, testLogger())
 	if _, _, err := e.Acquire(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +238,7 @@ func TestReleaseReleasesOnlyAsLeader(t *testing.T) {
 	if fb.released != 1 {
 		t.Fatalf("expected one backend.Release call, got %d", fb.released)
 	}
-	if got := e.State(); got != StateStandby {
+	if got := e.State(); got != elector.StateStandby {
 		t.Fatalf("State() = %s after Release; want standby", got)
 	}
 	if e.IsLeader() {
@@ -246,7 +250,7 @@ func TestAcquirePropagatesBackendErrors(t *testing.T) {
 	t.Run("try lock error", func(t *testing.T) {
 		fb := newFakeBackend()
 		fb.tryErr = errors.New("connection reset")
-		e := New("ns", "test", fb, testLogger())
+		e := elector.New("ns", "test", fb, testLogger())
 		_, _, err := e.Acquire(context.Background())
 		if !errors.Is(err, fb.tryErr) {
 			t.Fatalf("err = %v; want %v", err, fb.tryErr)
@@ -255,7 +259,7 @@ func TestAcquirePropagatesBackendErrors(t *testing.T) {
 	t.Run("holds lock error", func(t *testing.T) {
 		fb := newFakeBackend()
 		fb.holdsErr = errors.New("probe failed")
-		e := New("ns", "test", fb, testLogger())
+		e := elector.New("ns", "test", fb, testLogger())
 		if _, _, err := e.Acquire(context.Background()); err != nil {
 			t.Fatalf("first Acquire: %v", err)
 		}
@@ -267,7 +271,7 @@ func TestAcquirePropagatesBackendErrors(t *testing.T) {
 	t.Run("release error", func(t *testing.T) {
 		fb := newFakeBackend()
 		fb.relErr = errors.New("unlock failed")
-		e := New("ns", "test", fb, testLogger())
+		e := elector.New("ns", "test", fb, testLogger())
 		if _, _, err := e.Acquire(context.Background()); err != nil {
 			t.Fatal(err)
 		}
@@ -280,7 +284,7 @@ func TestAcquirePropagatesBackendErrors(t *testing.T) {
 func TestAcquireHonorsContextCancellation(t *testing.T) {
 	t.Run("leader re-confirm", func(t *testing.T) {
 		fb := newFakeBackend()
-		e := New("ns", "test", fb, testLogger())
+		e := elector.New("ns", "test", fb, testLogger())
 		ctx, cancel := context.WithCancel(context.Background())
 		if _, _, err := e.Acquire(ctx); err != nil {
 			t.Fatal(err)
@@ -293,7 +297,7 @@ func TestAcquireHonorsContextCancellation(t *testing.T) {
 	})
 	t.Run("standby try lock", func(t *testing.T) {
 		fb := newFakeBackend()
-		e := New("ns", "test", fb, testLogger())
+		e := elector.New("ns", "test", fb, testLogger())
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		_, _, err := e.Acquire(ctx)
@@ -305,7 +309,7 @@ func TestAcquireHonorsContextCancellation(t *testing.T) {
 
 func TestPIDTracksCurrentHolder(t *testing.T) {
 	fb := &fakeBackend{nextPID: 6}
-	e := New("ns", "test", fb, testLogger())
+	e := elector.New("ns", "test", fb, testLogger())
 	if _, _, err := e.Acquire(context.Background()); err != nil {
 		t.Fatal(err)
 	}
