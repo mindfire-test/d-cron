@@ -3,110 +3,11 @@ package elector_test
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/mindfire-test/d-cron/internal/elector"
 )
-
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
-
-type fakeBackend struct {
-	mu       sync.Mutex
-	held     bool
-	pid      int
-	nextPID  int
-	tryErr   error
-	holdsErr error
-	relErr   error
-	released int
-	tries    int
-	holds    int
-}
-
-func newFakeBackend() *fakeBackend {
-	return &fakeBackend{nextPID: 1}
-}
-
-func (f *fakeBackend) TryLock(ctx context.Context, _ int64) (bool, int, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.tries++
-	if err := ctx.Err(); err != nil {
-		return false, 0, err
-	}
-	if f.tryErr != nil {
-		return false, 0, f.tryErr
-	}
-	if f.held {
-		return false, 0, nil
-	}
-	f.held = true
-	f.pid = f.nextPID
-	f.nextPID++
-	return true, f.pid, nil
-}
-
-func (f *fakeBackend) HoldsLock(ctx context.Context, _ int64) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.holds++
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-	if f.holdsErr != nil {
-		return false, f.holdsErr
-	}
-	return f.held, nil
-}
-
-func (f *fakeBackend) Release(ctx context.Context, _ int64) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.released++
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-	if f.relErr != nil {
-		return false, f.relErr
-	}
-	f.held = false
-	return true, nil
-}
-
-func (f *fakeBackend) Close() error { return nil }
-
-func TestLockKeyDeterministic(t *testing.T) {
-	a := elector.LockKey("billing")
-	if a == 0 {
-		t.Fatalf("elector.LockKey must never be zero")
-	}
-	if b := elector.LockKey("billing"); b != a {
-		t.Fatalf("elector.LockKey not deterministic: %d != %d", b, a)
-	}
-	if c := elector.LockKey("notifications"); c == a {
-		t.Fatalf("different namespaces must yield different keys")
-	}
-}
-
-func TestLockKeyEmptyAndUnicode(t *testing.T) {
-	for _, ns := range []string{"", "default", "ümlaut-namespace", "🎉", "\x00control"} {
-		if got := elector.LockKey(ns); got == 0 {
-			t.Errorf("elector.LockKey(%q) = 0; must never be zero", ns)
-		}
-		if again := elector.LockKey(ns); again != elector.LockKey(ns) {
-			t.Errorf("elector.LockKey(%q) not deterministic", ns)
-		}
-	}
-	if elector.LockKey("") == elector.LockKey("default") {
-		t.Fatal("empty namespace must not collide with the default namespace")
-	}
-}
 
 func TestAcquirePromotesStandby(t *testing.T) {
 	e := elector.New("ns", "test", newFakeBackend(), testLogger())
@@ -169,8 +70,8 @@ func TestAcquireDemotesOnLostLock(t *testing.T) {
 	var to []elector.State
 	for len(to) < 2 {
 		select {
-		case t := <-sub:
-			to = append(to, t.To)
+		case tr := <-sub:
+			to = append(to, tr.To)
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for transition events")
 		}
@@ -180,23 +81,10 @@ func TestAcquireDemotesOnLostLock(t *testing.T) {
 	}
 }
 
-func TestAcquireWaitsForLockWhenHeldByOther(t *testing.T) {
-	fb := &fakeBackend{held: true}
-	e := elector.New("ns", "test", fb, testLogger())
-	promoted, epoch, err := e.Acquire(context.Background())
-	if err != nil || promoted {
-		t.Fatalf("Acquire while held by other = %v, %d, %v; want false, 0, nil", promoted, epoch, err)
-	}
-	if got := e.State(); got != elector.StateStandby {
-		t.Fatalf("State() = %s; want standby", got)
-	}
-}
-
 func TestEpochMonotonicAcrossPromotions(t *testing.T) {
 	fb := newFakeBackend()
 	e := elector.New("ns", "test", fb, testLogger())
-	_, e1, err := e.Acquire(context.Background())
-	if err != nil || e1 != 1 {
+	if _, e1, err := e.Acquire(context.Background()); err != nil || e1 != 1 {
 		t.Fatalf("first Acquire epoch = %d, err %v; want 1", e1, err)
 	}
 	if err := e.Release(context.Background()); err != nil {

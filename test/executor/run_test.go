@@ -116,53 +116,6 @@ func TestBackoff(t *testing.T) {
 	}
 }
 
-func TestGroupWaitWaitsForMembers(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	g := executor.NewGroup()
-	started := make(chan struct{})
-	done := make(chan struct{})
-	g.Go(ctx, "test",
-		func(ctx context.Context) error {
-			close(started)
-			<-ctx.Done()
-			close(done)
-			return ctx.Err()
-		}, executor.Retry{Attempts: 1}, nil)
-	<-started
-	cancel()
-	if err := g.Wait(context.Background()); err != nil {
-		t.Fatalf("Wait: %v", err)
-	}
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("job was not canceled when its context was canceled")
-	}
-}
-
-func TestGroupWaitBoundedByDrain(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	g := executor.NewGroup()
-	started := make(chan struct{})
-	g.Go(ctx, "test",
-		func(ctx context.Context) error {
-			close(started)
-			<-ctx.Done()
-			time.Sleep(40 * time.Millisecond)
-			return ctx.Err()
-		}, executor.Retry{Attempts: 1}, nil)
-	<-started
-	cancel()
-	drain, dcancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer dcancel()
-	err := g.Wait(drain)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Wait=%v, want DeadlineExceeded", err)
-	}
-}
-
 func TestRunPanicIsTypedAndCarriesStack(t *testing.T) {
 	t.Parallel()
 	res := executor.Run(context.Background(), "test", func(context.Context) error { panic("boom") }, executor.Retry{Attempts: 1})
@@ -176,7 +129,7 @@ func TestRunPanicIsTypedAndCarriesStack(t *testing.T) {
 	if pe.Value != "boom" {
 		t.Fatalf("Value = %v; want boom", pe.Value)
 	}
-	if len(pe.Stack) == 0 || !strings.Contains(string(pe.Stack), "executor_test.go") {
+	if len(pe.Stack) == 0 || !strings.Contains(string(pe.Stack), "run_test.go") {
 		t.Fatalf("stack must contain the panicking frame\n%s", pe.Stack)
 	}
 }
