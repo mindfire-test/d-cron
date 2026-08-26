@@ -23,10 +23,9 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/lib/pq" // driver for the suite's own handles
+	_ "github.com/lib/pq"
 )
 
-// testDSN / testDB are shared by all tests; TestMain owns their lifecycle.
 var (
 	testDSN string
 	testDB  *sql.DB

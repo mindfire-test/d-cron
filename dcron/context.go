@@ -2,8 +2,6 @@ package dcron
 
 import "context"
 
-// Context keys for values injected into job execution contexts. The private,
-// unexported key types prevent collisions with values set by application code.
 type (
 	epochKey       struct{}
 	idempotencyKey struct{}

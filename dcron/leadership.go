@@ -47,7 +47,7 @@ func (s *Scheduler) Leadership() LeadershipState {
 		return LeadershipLeader
 	case elector.StateStandby, elector.StateDemoting:
 		return LeadershipStandby
-	default: // StateUnknown
+	default:
 		return LeadershipUnknown
 	}
 }
@@ -57,7 +57,6 @@ func (s *Scheduler) Leadership() LeadershipState {
 // FR-411). A nil error means the backend responded to a ping.
 func (s *Scheduler) HealthCheck(ctx context.Context) error {
 	if s.db == nil {
-		// Test path (newWithBackend): no *sql.DB to ping.
 		return nil
 	}
 	if err := s.db.PingContext(ctx); err != nil {

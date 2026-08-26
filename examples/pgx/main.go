@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib" // registers driver name "pgx"
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	dcron "github.com/mindfire-test/d-cron/dcron"
 )
@@ -34,11 +34,10 @@ func main() {
 	}
 	defer sqlDB.Close()
 
-	sched, err := dcron.New(sqlDB,
+	sched, err := dcron.New(
+		sqlDB,
 		dcron.WithNamespace("pgx-example"),
-		// The advisory lock must live on a session-stable connection. Give
-		// d-cron its own direct connection by DSN + driver name; the pool
-		// above can then sit behind any pooler.
+
 		dcron.WithDedicatedLockDriver("pgx", dsn),
 	)
 	if err != nil {

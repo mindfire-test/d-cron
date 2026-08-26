@@ -6,21 +6,10 @@ import (
 	"fmt"
 )
 
-// SQL statements issued against the dedicated lock connection. pg_try_advisory_lock
-// and pg_advisory_unlock use the "big lock" (single int8) form; the key is
-// derived from the namespace by LockKey.
 const (
 	sqlPID     = `SELECT pg_backend_pid()`
 	sqlTryLock = `SELECT pg_try_advisory_lock($1), pg_backend_pid()`
-	// pg_locks has no key1/key2 columns; the single-bigint advisory form is
-	// stored with classid = high 32 bits, objid = low 32 bits of the key
-	// (PostgreSQL "Advisory Locks", one-key form; verified against PG 16).
-	// Both columns are SIGNED int4, so a half with bit 31 set is stored as a
-	// negative int4. Masking every side to 32-bit unsigned before comparing
-	// makes the probe immune to the sign extension — an exact bigint compare
-	// silently never matches when either half is negative, which made
-	// HoldsLock report "not held" on the owning session and the leader
-	// demote on every poll (failover deadlock found under issue #28).
+
 	sqlHolds = `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory'
 		AND (classid::bigint & 4294967295) = (($1::bigint >> 32) & 4294967295)
 		AND (objid::bigint & 4294967295) = ($1::bigint & 4294967295)
@@ -49,9 +38,6 @@ type Backend interface {
 	Close() error
 }
 
-// stdBackend is the default Backend, backed by a dedicated *sql.Conn. The
-// caller is responsible for ensuring conn is session-stable (see ProbeSessionStable
-// and the Scheduler's construction gate).
 type stdBackend struct {
 	conn *sql.Conn
 }

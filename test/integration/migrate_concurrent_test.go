@@ -18,7 +18,6 @@ func TestMigrate_TenReplicasConcurrent(t *testing.T) {
 	ctx := context.Background()
 	db := mustOpen(t)
 
-	// Start clean so the run really races from empty.
 	const schema = "dcron_it_migrate"
 	_, _ = db.ExecContext(ctx, `DROP SCHEMA IF EXISTS `+schema+` CASCADE`)
 

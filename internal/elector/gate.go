@@ -12,7 +12,6 @@ type Row interface {
 	Scan(dest ...any) error
 }
 
-// sqlRow adapts *sql.Row to Row.
 type sqlRow struct{ r *sql.Row }
 
 func (w sqlRow) Scan(dest ...any) error { return w.r.Scan(dest...) }
@@ -24,9 +23,6 @@ type Querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) Row
 }
 
-// sqlConn adapts a *sql.Conn to Querier for the session-stability probe. The
-// caller closes the connection separately (typically by passing the same conn
-// to NewStdBackend); this adapter does not own it.
 type sqlConn struct{ c *sql.Conn }
 
 func (w sqlConn) QueryRowContext(ctx context.Context, query string, args ...any) Row {
@@ -74,8 +70,6 @@ func PoolCapacity(maxOpen int) error {
 	return nil
 }
 
-// The two Postgres GUCs that determine whether a dead or partitioned leader's
-// lock is released in a bounded time (SDS §12 rows 3-4, FR-113).
 const sqlKeepalive = `SELECT NULLIF(current_setting('tcp_keepalives_idle', true), '')::int, ` +
 	`NULLIF(current_setting('client_connection_check_interval', true), '')::int`
 
@@ -93,7 +87,7 @@ func KeepaliveUnsafe(idle, connCheck int) bool {
 // effective default). It is best-effort: the elector logs a WARN but never
 // fails startup on a probe error.
 func ProbeKeepalive(ctx context.Context, q Querier) (idle, connCheck int, err error) {
-	var i1, i2 *int // NULL when unset
+	var i1, i2 *int
 	if err := q.QueryRowContext(ctx, sqlKeepalive).Scan(&i1, &i2); err != nil {
 		return 0, 0, fmt.Errorf("elector: keepalive probe: %w", err)
 	}

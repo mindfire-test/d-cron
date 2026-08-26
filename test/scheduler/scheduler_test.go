@@ -19,9 +19,6 @@ import (
 	"github.com/mindfire-test/d-cron/internal/elector"
 )
 
-// schedBackend is a minimal elector.Backend that always promotes its caller to
-// leader and thereafter confirms ownership, so a scheduler wired to it runs
-// jobs for as long as it stays started.
 type schedBackend struct {
 	mu   sync.Mutex
 	held bool
@@ -67,8 +64,6 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// fakeDriver/fakeConn let tests open a *sql.DB without a Postgres driver so
-// the session-stability gate is testable in isolation.
 type fakeDriver struct{}
 
 func (fakeDriver) Open(_ string) (driver.Conn, error) { return fakeConn{}, nil }
@@ -79,8 +74,6 @@ func (fakeConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("f
 func (fakeConn) Close() error                        { return nil }
 func (fakeConn) Begin() (driver.Tx, error)           { return nil, errors.New("fake: no tx") }
 
-// testScheduler builds a Scheduler over backend with fast test timings,
-// mirroring what testCfg used to provide via the old white-box constructor.
 func testScheduler(backend *schedBackend, opts ...dcron.Option) *dcron.Scheduler {
 	base := []dcron.Option{
 		dcron.WithPollInterval(5 * time.Millisecond),
@@ -207,8 +200,7 @@ func TestDeriveIdempotencyKey(t *testing.T) {
 	if got := dcron.DeriveIdempotencyKey("default", "report", fireAt); got != wantKey {
 		t.Fatalf("deriveIdempotencyKey = %q; want %q", got, wantKey)
 	}
-	// Identical across replicas for the same fire time (issue #21) and across
-	// different timezone representations of the same instant.
+
 	ny := time.Date(2026, 8, 18, 22, 30, 0, 0, time.FixedZone("EDT", -4*3600))
 	if got := dcron.DeriveIdempotencyKey("default", "report", ny); got != wantKey {
 		t.Fatalf("deriveIdempotencyKey must be invariant across timezones: %q != %q", got, wantKey)
@@ -219,8 +211,6 @@ func TestDeriveIdempotencyKey(t *testing.T) {
 }
 
 func TestNewSessionStabilityGate(t *testing.T) {
-	// Register a minimal fake driver so sql.Open/db.Conn succeed; the gate is
-	// then the only behavior under test, not driver plumbing.
 	sql.Register("dcron-test-fake", fakeDriver{})
 	db, err := sql.Open("dcron-test-fake", "unused")
 	if err != nil {

@@ -106,13 +106,13 @@ type Elector struct {
 	backend  Backend
 	key      int64
 	ns       string
-	instance string // host-unique id stamped into transition logs (SDS §3.5)
+	instance string
 	log      *slog.Logger
 
 	mu    sync.Mutex
 	state State
-	epoch int64 // fence token; increments on each promotion and each demotion
-	pid   int   // backend pid of the most recent (or current) lock holder
+	epoch int64
+	pid   int
 	subs  []chan<- Transition
 }
 
@@ -177,9 +177,6 @@ func (e *Elector) Epoch() int64 {
 	return e.epoch
 }
 
-// emit broadcasts a transition to every subscriber without blocking. A slow
-// subscriber drops transitions rather than stalling the elector (Acquire's
-// state is always authoritative). Must hold mu.
 func (e *Elector) emit(from, to State, reason string) {
 	t := Transition{From: from, To: to, Epoch: e.epoch, Reason: reason}
 	for _, sub := range e.subs {
@@ -205,23 +202,20 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 	case StateLeader:
 		holds, err := e.backend.HoldsLock(ctx, e.key)
 		if err != nil {
-			// Database unreachable/transient (NFR-202): do not crash the host.
-			// Demote; the next poll re-acquires if the session still owns the
-			// lock, or resumes election once the database recovers.
+
 			e.demote("db_unavailable")
 			return false, e.epoch, err
 		}
 		if holds {
 			return false, e.epoch, nil
 		}
-		// Lost the lock while leading (partitioned/killed backend, or a
-		// concurrent release). Step down so a future Acquire can re-win.
+
 		e.demote("lost_lock")
 		return false, e.epoch, nil
 	case StateDemoting:
-		// Settling out of leadership; the scheduler finalizes, then re-polls.
+
 		return false, e.epoch, nil
-	default: // StateUnknown or StateStandby
+	default:
 		acquired, pid, err := e.backend.TryLock(ctx, e.key)
 		if err != nil {
 			return false, e.epoch, err
@@ -236,17 +230,12 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 			e.emit(StateStandby, StateLeader, "promoted")
 			return true, e.epoch, nil
 		}
-		// The lock is held by a different replica (or was not yet released). A
-		// failed attempt is the standby's steady state, not "unknown".
+
 		e.state = StateStandby
 		return false, e.epoch, nil
 	}
 }
 
-// demote begins stepping a leader down: bump the epoch fence token so any
-// in-flight work carrying the old epoch is recognised as stale, drop the pid,
-// and emit LEADER -> DEMOTING. The scheduler finalizes to STANDBY once it has
-// aborted/drained in-flight work (FR-307). Must hold mu.
 func (e *Elector) demote(reason string) {
 	if e.state != StateLeader {
 		return
@@ -290,8 +279,6 @@ func (e *Elector) Release(ctx context.Context) error {
 		return err
 	}
 	if !released {
-		// false means we did not hold the lock (already released by the server
-		// on backend exit, or never acquired) — log it; not fatal (SDS §3.6).
 		e.log.Warn("elector: unlock reported not-held",
 			"namespace", e.ns, "instance", e.instance, "key", e.key)
 	}

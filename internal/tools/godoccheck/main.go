@@ -38,20 +38,20 @@ func main() {
 			var doc *ast.CommentGroup
 			switch decl := d.(type) {
 			case *ast.FuncDecl:
-				if decl.Recv != nil { // methods share receiver doc rules; skip
+				if decl.Recv != nil {
 					continue
 				}
 				names = []string{decl.Name.Name}
 				doc = decl.Doc
 			case *ast.GenDecl:
-				// Group docs apply only when individual specs lack their own.
+
 				for _, spec := range decl.Specs {
 					switch s := spec.(type) {
 					case *ast.TypeSpec:
 						names = []string{s.Name.Name}
 						doc = s.Doc
 						if doc == nil && !decl.Lparen.IsValid() {
-							doc = decl.Doc // single-spec decl without parens
+							doc = decl.Doc
 						}
 					case *ast.ValueSpec:
 						for _, n := range s.Names {
@@ -83,8 +83,6 @@ func main() {
 	}
 }
 
-// checkNames validates that every exported name either has no requirement met
-// (missing doc -> reported) or its doc begins with the identifier itself.
 func checkNames(fset *token.FileSet, names []string, doc *ast.CommentGroup, d ast.Decl, bad *int) {
 	for _, n := range names {
 		if !ast.IsExported(n) {
@@ -96,8 +94,7 @@ func checkNames(fset *token.FileSet, names []string, doc *ast.CommentGroup, d as
 			*bad++
 			continue
 		}
-		// Go convention: the comment's first word is the identifier
-		// (godoc renders it as a heading and pkg.go.dev relies on it).
+
 		text := strings.TrimSpace(strings.TrimPrefix(doc.List[0].Text, "//"))
 		if first := strings.Fields(text); len(first) > 0 && first[0] != n {
 			fmt.Printf("%s:%d: %s doc should begin with %q, got %q\n",

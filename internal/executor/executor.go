@@ -21,7 +21,7 @@ type Func func(ctx context.Context) error
 type Outcome uint8
 
 const (
-	OutcomeUnknown Outcome = iota // reserved for zero value
+	OutcomeUnknown Outcome = iota
 	OutcomeOK
 	// OutcomeFailed is a non-retryable error, or the last error once the
 	// retry policy was exhausted.
@@ -72,10 +72,6 @@ type Retry struct {
 	Retryable func(error) bool
 }
 
-// withDefaults fills in the SDS defaults (issues #19/#20) so a zero-value
-// Retry yields: a 30-minute per-attempt timeout, 5 attempts, 1s base backoff
-// doubling to a 5-minute cap, and jitter enabled. Callers that set a field keep
-// their value; only zero/absent fields are defaulted.
 func (r Retry) withDefaults() Retry {
 	if r.Attempts < 1 {
 		r.Attempts = 5
@@ -89,8 +85,7 @@ func (r Retry) withDefaults() Retry {
 	if r.MaxBackoff <= 0 {
 		r.MaxBackoff = 5 * time.Minute
 	}
-	// Jitter defaults to ON per SDS §5.3 (it cannot be turned off via the zero
-	// value); tests and callers needing deterministic backoff must set it false.
+
 	if r.Timeout <= 0 {
 		r.Timeout = 30 * time.Minute
 	}

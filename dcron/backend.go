@@ -35,7 +35,6 @@ func NewWithBackend(backend LockBackend, opts ...Option) *Scheduler {
 	return newWithBackend(lockBackendAdapter{b: backend}, nil, cfg, nil)
 }
 
-// lockBackendAdapter bridges LockBackend to the internal elector.Backend.
 type lockBackendAdapter struct{ b LockBackend }
 
 func (a lockBackendAdapter) TryLock(ctx context.Context, key int64) (bool, int, error) {

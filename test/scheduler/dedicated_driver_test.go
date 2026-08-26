@@ -11,9 +11,6 @@ import (
 	"github.com/mindfire-test/d-cron/dcron"
 )
 
-// dedicatedDriver records the DSN it was opened with and refuses a real
-// connection, so tests can assert WHICH driver name d-cron consulted without
-// needing PostgreSQL.
 type dedicatedDriver struct{ openedDSN string }
 
 func (d *dedicatedDriver) Open(dsn string) (driver.Conn, error) {
@@ -21,11 +18,9 @@ func (d *dedicatedDriver) Open(dsn string) (driver.Conn, error) {
 	return nil, errNoRealConn
 }
 
-var errNoRealConn = context.Canceled // any sentinel; New surfaces it wrapped
+var errNoRealConn = context.Canceled
 
 func TestWithDedicatedLockDriverOpensNamedDriver(t *testing.T) {
-	// pgx users register "pgx", lib/pq users "postgres" — the option must
-	// consult exactly the driver name it was given (issue #24).
 	const alias = "dcron-dedicated-alias"
 	d := &dedicatedDriver{}
 	sql.Register(alias, d)
@@ -62,9 +57,6 @@ func TestWithDedicatedLockSatisfiesSessionGate(t *testing.T) {
 	}
 	defer db.Close()
 
-	// Without any dedicated-lock option and no stability assertion, New must
-	// refuse; with WithDedicatedLockDriver the gate passes (failure moves on
-	// to connectivity instead).
 	if _, err := dcron.New(db); err == nil {
 		t.Fatal("New must refuse without session-stability wiring")
 	} else if !isSessionStabilityErr(err) {

@@ -22,18 +22,12 @@ import (
 	"github.com/mindfire-test/d-cron/internal/store"
 	"github.com/mindfire-test/d-cron/metrics"
 	"github.com/mindfire-test/d-cron/ui"
-	// Register your PostgreSQL driver here, e.g. `_ "github.com/lib/pq"`.
 )
 
-// promRecorder is an example metrics.Recorder. In production you would bridge
-// these calls to a prometheus.Registry via prometheus/client_golang; the
-// metric names to register are exported from the metrics package as Key*.
 type promRecorder struct {
 	metrics.Noop
 }
 
-// jobRows snapshots the scheduler's registered jobs for the dashboard's jobs
-// table (dcron.JobStatus -> ui.JobRow).
 func jobRows(s *dcron.Scheduler) []ui.JobRow {
 	statuses := s.Jobs()
 	rows := make([]ui.JobRow, 0, len(statuses))
@@ -63,7 +57,7 @@ func main() {
 		db,
 		dcron.WithNamespace("with-dashboard"),
 		dcron.WithSessionStableConnection(),
-		dcron.WithHistory(7*24*time.Hour), // opt-in schema `dcron` (#34)
+		dcron.WithHistory(7*24*time.Hour),
 		dcron.WithHooks(&dcron.WebhookHook{
 			URL:     os.Getenv("DCRON_WEBHOOK_URL"),
 			Timeout: 5 * time.Second,
@@ -80,10 +74,6 @@ func main() {
 		log.Fatalf("Add: %v", err)
 	}
 
-	// History reader for the dashboard (issue #35/#38): the same handle shape
-	// the scheduler built internally via WithHistory. Recent() is read-only;
-	// a failed query must never take the dashboard down, so errors are logged
-	// and rendered as an empty panel.
 	hist, err := store.New(db, "dcron")
 	if err != nil {
 		log.Fatalf("history store: %v", err)
@@ -93,8 +83,6 @@ func main() {
 		log.Fatalf("Start: %v", err)
 	}
 
-	// Dashboard (issue #38): read-only, server-rendered, embedded assets.
-	// Mount wherever you like; PROTECT IT — no auth is performed here.
 	mux := http.NewServeMux()
 	mux.Handle("/internal/dcron", http.StripPrefix("/internal/dcron",
 		ui.Handler(

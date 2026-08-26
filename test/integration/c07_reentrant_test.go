@@ -21,7 +21,7 @@ func TestC07_ReentrantAdvisoryLock(t *testing.T) {
 	}
 	defer conn.Close()
 
-	const key = int64(918273645) // arbitrary, outside d-cron's derived range
+	const key = int64(918273645)
 
 	tryLock := func() bool {
 		var acquired bool
@@ -45,7 +45,7 @@ func TestC07_ReentrantAdvisoryLock(t *testing.T) {
 	if !tryLock() || !tryLock() {
 		t.Fatal("both nested try_locks must succeed on the same session (re-entrancy)")
 	}
-	unlockOnce() // single unlock...
+	unlockOnce()
 
 	var stillHeld bool
 	if err := conn.QueryRowContext(ctx,
@@ -56,8 +56,7 @@ func TestC07_ReentrantAdvisoryLock(t *testing.T) {
 		t.Fatal("lock must STILL be held after one of two acquires (C-07)")
 	}
 
-	// Drain the remaining hold so the session ends clean.
-	if !tryLock() { // third acquire also succeeds while depth > 0
+	if !tryLock() {
 		t.Fatal("re-acquire should succeed")
 	}
 	for i := 0; i < 3; i++ {

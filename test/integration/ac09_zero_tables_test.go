@@ -32,7 +32,7 @@ func TestAC09_ZeroTablesAfterLifecycle(t *testing.T) {
 	if err := s.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// Give it at least one real fire through the full elector path.
+
 	time.Sleep(200 * time.Millisecond)
 	dctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -8,7 +8,7 @@ import (
 )
 
 type attemptResult struct {
-	val   any // panic value when panicked
+	val   any
 	err   error
 	stack []byte
 	panic bool
@@ -46,7 +46,7 @@ func Run(ctx context.Context, name string, fn Func, retry Retry) Result {
 				sleep(ctx, r.Delay(attempt))
 				continue
 			}
-		default: // OutcomeFailed
+		default:
 			if attempt < r.Attempts && r.Retryable(err) {
 				sleep(ctx, r.Delay(attempt))
 				continue
@@ -56,10 +56,6 @@ func Run(ctx context.Context, name string, fn Func, retry Retry) Result {
 	}
 }
 
-// wrapJobErr tags a result error with the job name (issue #26) and wraps
-// deadline failures as *TimeoutError so callers can errors.Is(err,
-// context.DeadlineExceeded) while still distinguishing a job timeout. Canceled
-// and failed errors are returned as-is for backward-compatible errors.Is.
 func wrapJobErr(name string, out Outcome, err error) error {
 	if err == nil {
 		return nil
@@ -70,8 +66,6 @@ func wrapJobErr(name string, out Outcome, err error) error {
 	return err
 }
 
-// attemptCtx bounds a single run by the per-attempt timeout, or derives a
-// cancellable context when none was requested so Run can cancel on completion.
 func attemptCtx(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if timeout > 0 {
 		return context.WithTimeout(ctx, timeout)
@@ -79,7 +73,6 @@ func attemptCtx(ctx context.Context, timeout time.Duration) (context.Context, co
 	return context.WithCancel(ctx)
 }
 
-// sleep pauses for d unless ctx is canceled first.
 func sleep(ctx context.Context, d time.Duration) {
 	if d <= 0 {
 		return
@@ -92,16 +85,11 @@ func sleep(ctx context.Context, d time.Duration) {
 	}
 }
 
-// runAttempt runs fn once under ctx, capturing any panic. It never returns
-// OutcomeUnknown.
 func runAttempt(ctx context.Context, name string, fn Func) (Outcome, []byte, error) {
 	ch := make(chan attemptResult, 1)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				// Capture the stack inside the deferred func, before the stack
-				// unwinds further: a post-unwind capture loses the panicking
-				// frame (issue #18).
 				ch <- attemptResult{
 					val:   r,
 					stack: stackDump(),
@@ -111,13 +99,7 @@ func runAttempt(ctx context.Context, name string, fn Func) (Outcome, []byte, err
 		}()
 		ch <- attemptResult{err: fn(ctx)}
 	}()
-	// Join the in-flight job goroutine: block until fn returns so callers
-	// (notably Group.Wait) observe real completion rather than the instant
-	// the context cancels. A cooperative job honours ctx -- its per-attempt
-	// deadline or the scheduler's shutdown -- so this normally returns
-	// promptly. A job that ignores ctx cannot be pre-empted in Go; it is
-	// bounded instead by the scheduler's drain deadline (Group.Wait) and
-	// logged as orphaned. See SDS §7.
+
 	res := <-ch
 	if res.panic {
 		return OutcomePanicked, res.stack, &PanicError{Job: name, Value: res.val, Stack: res.stack}
@@ -125,7 +107,6 @@ func runAttempt(ctx context.Context, name string, fn Func) (Outcome, []byte, err
 	return classify(res.err), nil, res.err
 }
 
-// classify maps a returned error to the matching non-OK outcome.
 func classify(err error) Outcome {
 	if err == nil {
 		return OutcomeOK
@@ -146,7 +127,6 @@ func outcomeOf(err error) Outcome {
 	return OutcomeTimedOut
 }
 
-// stackDump returns the calling goroutine's stack trace.
 func stackDump() []byte {
 	buf := make([]byte, 1024)
 	for {

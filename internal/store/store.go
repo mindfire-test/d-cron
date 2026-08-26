@@ -25,7 +25,7 @@ type Execution struct {
 	JobName     string
 	ScheduledAt time.Time
 	StartedAt   time.Time
-	FinishedAt  time.Time // zero until Finish
+	FinishedAt  time.Time
 	Status      Status
 	Attempt     int
 	DurationMs  int64
@@ -39,7 +39,7 @@ type Execution struct {
 type Store struct {
 	db     *sql.DB
 	schema string
-	// qualified table name, e.g. "dcron.execution".
+
 	exec string
 }
 

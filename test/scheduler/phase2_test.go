@@ -13,8 +13,6 @@ import (
 	"github.com/mindfire-test/d-cron/metrics"
 )
 
-// recordingRecorder is a metrics.Recorder that records a bounded set of signals
-// for asserting that the core emits them (#36).
 type recordingRecorder struct {
 	leaders     atomic.Int64
 	started     atomic.Int64
@@ -127,7 +125,7 @@ func TestJobsReportsRunningFlag(t *testing.T) {
 	if err := s.Add("slow", "@every 2ms", func(_ context.Context) error {
 		for i := 0; i < 30_000_000; i++ {
 			_ = i
-		} // busy loop, ignores ctx
+		}
 		return nil
 	}, dcron.WithTimeout(10*time.Minute), dcron.WithRetry(dcron.Retry{Attempts: 1})); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -195,8 +193,7 @@ func TestWebhookHookConstruction(t *testing.T) {
 	if w.URL != "http://localhost:1/x" {
 		t.Fatalf("URL = %q", w.URL)
 	}
-	// A refused connection errors (no live server); asserts the plumbing is
-	// wired and errors are returned, never thrown.
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	_ = w.Fire(ctx, executor.Result{Name: "j", Outcome: executor.OutcomeFailed})

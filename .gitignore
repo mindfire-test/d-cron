@@ -1,5 +1,7 @@
 # Binaries
 /d-cron
+/examples/pgx/pgx
+/examples/prometheus-adapter/prometheus-adapter
 *.exe
 *.test
 *.out

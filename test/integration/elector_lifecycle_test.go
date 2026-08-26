@@ -66,11 +66,6 @@ func TestLeaderFailover_PromotesExactlyOneStandby(t *testing.T) {
 		schedulers[i] = s
 	}
 
-	// Raw-SQL preflight: prove advisory locks work at the SQL level on a
-	// connection that NO scheduler is using. We use a dedicated scratch key
-	// (not the real one, which a scheduler already holds on another pooled
-	// connection — contending on it would correctly return false and would be
-	// indistinguishable from an SQL failure).
 	{
 		conn, err := mustOpen(t).Conn(ctx)
 		if err != nil {
@@ -95,7 +90,6 @@ func TestLeaderFailover_PromotesExactlyOneStandby(t *testing.T) {
 		conn.Close()
 	}
 
-	// Phase 1: exactly one leader and exactly one standby (either may win).
 	waitForStates(t, 15*time.Second, "one leader + one standby", schedulers, func() bool {
 		return countLeaders(schedulers) == 1 && countStandbys(schedulers) == 1
 	})
@@ -109,12 +103,10 @@ func TestLeaderFailover_PromotesExactlyOneStandby(t *testing.T) {
 		}
 	}
 
-	// Kill the leader: its advisory lock dies with its session.
 	if err := leader.Stop(context.Background()); err != nil {
 		t.Logf("leader Stop returned %v (acceptable during failover)", err)
 	}
 
-	// Phase 2: the survivor must be promoted, and it must be the ONLY leader.
 	waitForStates(t, 20*time.Second, "survivor promoted after failover", schedulers, func() bool {
 		return follower.Leadership() == dcron.LeadershipLeader &&
 			countLeaders(schedulers) == 1
@@ -149,9 +141,6 @@ func statesLabel(scheds []*dcron.Scheduler) string {
 	return fmt.Sprintf("[%s]", strings.Join(parts, " "))
 }
 
-// waitForStates polls cond and, on timeout, dumps both schedulers' leadership
-// states plus every advisory lock row so a hung promotion is diagnosable from
-// the failure output alone.
 func waitForStates(t *testing.T, budget time.Duration, what string,
 	scheds []*dcron.Scheduler, cond func() bool,
 ) {

@@ -10,10 +10,6 @@ import (
 	"github.com/mindfire-test/d-cron/internal/elector"
 )
 
-// schemaID matches a SQL identifier suitable for interpolation into a
-// qualified name. Only the schema name is interpolated (after validation); the
-// table and index names are fixed constants, and every data value is passed as
-// a bind parameter (NFR-503, issue #34).
 var schemaID = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 // ErrInvalidSchema is returned when the configured schema name fails the
@@ -22,8 +18,6 @@ var schemaID = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 // interpolated.
 var ErrInvalidSchema = errors.New("store: schema name must be a lowercase SQL identifier")
 
-// validateSchema enforces the allowlist plus the never-public rule (issue #34,
-// NFR-503): only then may the identifier be interpolated into DDL.
 func validateSchema(schema string) error {
 	if schema == "public" {
 		return fmt.Errorf("%w: %q is reserved; d-cron never creates its tables in public", ErrInvalidSchema, schema)
@@ -92,7 +86,6 @@ func Migrate(ctx context.Context, db *sql.DB, schema string) error {
 		return fmt.Errorf("store: migrate: acquire lock: %w", err)
 	}
 	defer func() {
-		// Best-effort release; losing the lock releases on backend exit anyway.
 		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, key)
 	}()
 

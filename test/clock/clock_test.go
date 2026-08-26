@@ -31,7 +31,7 @@ func TestParseInvalid(t *testing.T) {
 
 func TestParseInvalidSeconds(t *testing.T) {
 	t.Parallel()
-	// 5-field expressions are rejected by the 6-field parser.
+
 	for _, expr := range []string{"0 0 * * *", "* * *", "0 0 0 * * * *"} {
 		if _, err := clock.ParseSeconds(expr, time.UTC); err == nil {
 			t.Errorf("clock.ParseSeconds(%q): expected an error", expr)
@@ -206,7 +206,7 @@ func TestParseSeconds(t *testing.T) {
 			t.Errorf("clock.ParseSeconds(%q).Next(%s) = %s; want %s", tc.expr, tc.from, got, tc.want)
 		}
 	}
-	// descriptors route through ParseSeconds unchanged (no seconds field)
+
 	d, err := clock.ParseSeconds("@daily", time.UTC)
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +218,7 @@ func TestParseSeconds(t *testing.T) {
 
 func TestCronNextFeb29(t *testing.T) {
 	t.Parallel()
-	s, err := clock.Parse("0 0 29 2 *", time.UTC) // fires only on Feb 29
+	s, err := clock.Parse("0 0 29 2 *", time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}

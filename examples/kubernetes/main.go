@@ -20,7 +20,6 @@ import (
 	"time"
 
 	dcron "github.com/mindfire-test/d-cron/dcron"
-	// Register your PostgreSQL driver here, e.g. `_ "github.com/lib/pq"`.
 )
 
 func main() {
@@ -51,8 +50,6 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		// Liveness: coordination backend reachable. Failing this gets the pod
-		// restarted, which releases the advisory lock promptly.
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		if err := sched.HealthCheck(ctx); err != nil {
@@ -62,8 +59,6 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		// Readiness: healthy AND not unknown. A standby IS ready to serve
-		// application traffic; it simply does not run the clock.
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		if err := sched.HealthCheck(ctx); err != nil {

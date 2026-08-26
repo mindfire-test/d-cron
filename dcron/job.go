@@ -28,10 +28,6 @@ type Job struct {
 	overlap bool
 	busy    sync.Mutex
 
-	// Phase 2 status tracking (guarded by statusMu). Guarded separately from
-	// s.mu because jobs complete on the executor's goroutines, not the loop
-	// goroutine, and we never want to block the leadership loop updating one
-	// job's status while another is being inspected.
 	statusMu     sync.Mutex
 	nextRun      time.Time
 	lastRun      time.Time

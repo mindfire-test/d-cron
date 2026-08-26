@@ -16,9 +16,6 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// fakeBackend is a fully controllable Backend for state-machine tests. Every
-// method honors the caller's context so the cancellation path is exercised
-// without a real Postgres.
 type fakeBackend struct {
 	mu       sync.Mutex
 	held     bool
@@ -47,7 +44,7 @@ func (f *fakeBackend) TryLock(ctx context.Context, _ int64) (bool, int, error) {
 		return false, 0, f.tryErr
 	}
 	if f.held {
-		return false, 0, nil // lock held by a different replica
+		return false, 0, nil
 	}
 	f.held = true
 	f.pid = f.nextPID
@@ -98,8 +95,6 @@ func TestLockKeyDeterministic(t *testing.T) {
 }
 
 func TestLockKeyEmptyAndUnicode(t *testing.T) {
-	// The default namespace "default" and empty/unicode namespaces must all
-	// resolve deterministically to non-zero keys (issue #6).
 	for _, ns := range []string{"", "default", "ümlaut-namespace", "🎉", "\x00control"} {
 		if got := elector.LockKey(ns); got == 0 {
 			t.Errorf("elector.LockKey(%q) = 0; must never be zero", ns)
@@ -149,12 +144,11 @@ func TestAcquireReconfirmsLeaderWithoutEpochBump(t *testing.T) {
 func TestAcquireDemotesOnLostLock(t *testing.T) {
 	fb := newFakeBackend()
 	e := elector.New("ns", "test", fb, testLogger())
-	// Promote to leader first (black-box), then simulate the backend losing
-	// the lock so the next Acquire must demote.
+
 	if _, _, err := e.Acquire(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	fb.held = false // conn no longer holds the lock (lost it)
+	fb.held = false
 	sub := e.Subscribe()
 
 	promoted, epoch, err := e.Acquire(context.Background())
@@ -172,7 +166,6 @@ func TestAcquireDemotesOnLostLock(t *testing.T) {
 		t.Fatalf("State() after FinalizeDemotion = %s; want standby", got)
 	}
 
-	// The transition channel must carry LEADER->DEMOTING then DEMOTING->STANDBY.
 	var to []elector.State
 	for len(to) < 2 {
 		select {
@@ -188,7 +181,7 @@ func TestAcquireDemotesOnLostLock(t *testing.T) {
 }
 
 func TestAcquireWaitsForLockWhenHeldByOther(t *testing.T) {
-	fb := &fakeBackend{held: true} // held by a different replica
+	fb := &fakeBackend{held: true}
 	e := elector.New("ns", "test", fb, testLogger())
 	promoted, epoch, err := e.Acquire(context.Background())
 	if err != nil || promoted {

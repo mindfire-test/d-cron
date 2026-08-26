@@ -30,11 +30,9 @@ import (
 // not safe for concurrent use by multiple goroutines.
 type Scheduler struct {
 	opts options
-	// db is retained for HealthCheck (issue #37). It may be nil when the
-	// scheduler was built via newWithBackend in tests.
+
 	db *sql.DB
-	// store persists execution history when WithHistory was supplied (issue
-	// #34); nil otherwise so the Phase-1 zero-migrations guarantee holds.
+
 	store *store.Store
 
 	mu     sync.Mutex
@@ -48,16 +46,9 @@ type Scheduler struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 
-	// termCtx is the per-leadership-term context under which in-flight jobs
-	// run. It is canceled when leadership is lost (FR-307: retries must stop,
-	// a demoted leader must not keep working a fire time) and derives from
-	// runCtx so shutdown cancels it too. Refreshed on each promotion.
-	// Accessed only from the runLoop goroutine.
 	termCtx    context.Context
 	termCancel context.CancelFunc
 
-	// lastPrune throttles history retention pruning to once per pruneInterval.
-	// Accessed only from the runLoop goroutine.
 	lastPrune time.Time
 }
 
@@ -94,8 +85,6 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 		return nil, &SessionStabilityError{}
 	}
 	if cfg.lockConn == nil {
-		// Borrowing from the caller's pool: it must be able to spare one
-		// connection for the leadership term (issue #13).
 		if err := elector.PoolCapacity(db.Stats().MaxOpenConnections); err != nil {
 			return nil, err
 		}
@@ -104,12 +93,9 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Best-effort keepalive preflight; never fails startup (issue #14).
+
 	elector.WarnKeepalive(context.Background(), elector.NewSQLConn(conn), cfg.logger)
 
-	// Opt-in history (issue #34): only WithHistory creates the schema/tables.
-	// The migration runs here so a bad schema name or an unreachable database
-	// fails at construction rather than silently losing history at runtime.
 	var hist *store.Store
 	if cfg.history && db != nil {
 		hist, err = store.New(db, cfg.schema)
@@ -128,10 +114,6 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 	return newWithBackend(elector.NewStdBackend(conn), db, cfg, hist), nil
 }
 
-// lockConnection obtains the dedicated, session-stable connection used for the
-// advisory lock: a caller-supplied connection (WithDedicatedLockConn /
-// WithDedicatedLockDSN), or a dedicated conn borrowed from the caller's pool
-// after the session-stability and pool-capacity gates have passed.
 func lockConnection(cfg options, db *sql.DB) (*sql.Conn, error) {
 	if cfg.lockConn != nil {
 		return cfg.lockConn(context.Background())
@@ -139,9 +121,6 @@ func lockConnection(cfg options, db *sql.DB) (*sql.Conn, error) {
 	return db.Conn(context.Background())
 }
 
-// newWithBackend builds a Scheduler around an injected Backend, bypassing the
-// database gates. It is used by New and by tests. db and hist may be nil in
-// tests that don't exercise HealthCheck or history.
 func newWithBackend(backend elector.Backend, db *sql.DB, cfg options, hist *store.Store) *Scheduler {
 	return &Scheduler{
 		opts:   cfg,
@@ -230,9 +209,6 @@ func (s *Scheduler) AddOnce(name string, at time.Time, fn JobFunc, opts ...JobOp
 		j.nextRun = at.In(s.opts.location)
 		heap.Push(s.clk, &clock.Job{Name: name, FireAt: j.nextRun, Sched: sched})
 	} else {
-		// The instant is already in the past (or exactly now): registering a
-		// past once-job would silently no-op. Return an explicit error instead
-		// of pretending it was queued (issue #33).
 		return &InvalidSpecError{Name: name, Spec: "@once " + at.Format(time.RFC3339)}
 	}
 	return nil
@@ -249,8 +225,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.started = true
 	s.runCtx, s.cancel = context.WithCancel(ctx)
 	s.group = executor.NewGroup()
-	// Until the first promotion no job fires; termCtx is refreshed on promotion
-	// (runLoop) and canceled on demotion to abort in-flight work (FR-307).
+
 	s.termCtx = s.runCtx
 	s.termCancel = func() {}
 	s.done = make(chan struct{})
@@ -272,15 +247,15 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 	cancel := s.cancel
 	s.mu.Unlock()
 
-	cancel() // stop the poll loop (no new fires)
-	<-s.done // the runLoop has exited
+	cancel()
+	<-s.done
 
 	var firstErr error
-	// Unlock FIRST so a standby can promote while we drain (issue #11/#22).
+
 	if err := s.leader.Release(ctx); err != nil && firstErr == nil {
 		firstErr = err
 	}
-	// Then drain in-flight jobs, bounded by the caller's deadline.
+
 	if err := s.group.Wait(ctx); err != nil && firstErr == nil {
 		firstErr = err
 	}

@@ -18,7 +18,6 @@ func TestSessionStableFromPIDs(t *testing.T) {
 	}
 }
 
-// fakeRow implements Row by returning a fixed pid (or error) per Scan.
 type fakeRow struct {
 	pid int
 	err error
@@ -34,8 +33,6 @@ func (r fakeRow) Scan(dest ...any) error {
 	return nil
 }
 
-// fakeQuerier returns successive pids (or an error) for each QueryRowContext,
-// honoring the caller's context.
 type fakeQuerier struct {
 	mu   sync.Mutex
 	seq  []int
@@ -131,13 +128,12 @@ func TestPoolCapacityReturnsTypedError(t *testing.T) {
 	if sce.MaxOpen != 1 {
 		t.Errorf("MaxOpen = %d; want 1", sce.MaxOpen)
 	}
-	// The typed error must still match the sentinel so existing callers are unaffected.
+
 	if !errors.Is(err, elector.ErrSingleConnectionPool) {
 		t.Fatal("typed error must also errors.Is against elector.ErrSingleConnectionPool")
 	}
 }
 
-// keepaliveRow scans two nullable ints (the keepalive GUC probe result).
 type keepaliveRow struct {
 	i1, i2 *int
 	err    error
@@ -158,7 +154,6 @@ func (r keepaliveRow) Scan(dest ...any) error {
 	return nil
 }
 
-// keepaliveQuerier returns a single row of keepalive GUC values.
 type keepaliveQuerier struct {
 	i1, i2 *int
 	err    error
@@ -192,7 +187,6 @@ func TestProbeKeepalive(t *testing.T) {
 		t.Fatalf("elector.ProbeKeepalive = (%d, %d); want (60, 0)", idle, check)
 	}
 
-	// Unset values arrive as NULL and must report as 0.
 	got = keepaliveQuerier{}
 	idle, check, err = elector.ProbeKeepalive(context.Background(), got)
 	if err != nil {

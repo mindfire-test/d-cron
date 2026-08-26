@@ -26,13 +26,12 @@ import (
 	"github.com/mindfire-test/d-cron/metrics"
 )
 
-// promRecorder implements metrics.Recorder on top of a prometheus.Registerer.
 type promRecorder struct {
 	instance string
 
 	leader     *prometheus.GaugeVec
 	trans      *prometheus.CounterVec
-	started    prometheus.Counter // executions started; running gauge derives below
+	started    prometheus.Counter
 	executions *prometheus.CounterVec
 	duration   *prometheus.HistogramVec
 	lastOK     *prometheus.GaugeVec
@@ -60,7 +59,7 @@ func NewPromRecorder(reg prometheus.Registerer, instance string) metrics.Recorde
 		duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    metrics.KeyJobDuration,
 			Help:    "Job wall-clock duration.",
-			Buckets: prometheus.ExponentialBuckets(0.001, 4, 12), // 1ms .. ~4.2s+
+			Buckets: prometheus.ExponentialBuckets(0.001, 4, 12),
 		}, []string{"job"}),
 		lastOK: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: metrics.KeyJobLastSuccess,
@@ -114,7 +113,7 @@ func (r *promRecorder) FencedWrite() { r.fenced.Inc() }
 func (r *promRecorder) MissedRun(job string) { r.missed.WithLabelValues(job).Inc() }
 
 func main() {
-	reg := prometheus.NewRegistry() // app-owned registry, not the default one
+	reg := prometheus.NewRegistry()
 	rec := NewPromRecorder(reg, os.Getenv("HOSTNAME"))
 	reg.MustRegister(collectors.NewGoCollector())
 
@@ -124,7 +123,8 @@ func main() {
 	}
 	defer db.Close()
 
-	sched, err := dcron.New(db,
+	sched, err := dcron.New(
+		db,
 		dcron.WithNamespace("with-prometheus"),
 		dcron.WithSessionStableConnection(),
 		dcron.WithMetrics(rec),

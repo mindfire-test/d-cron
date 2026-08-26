@@ -74,7 +74,7 @@ func TestHandlerRendersHistory(t *testing.T) {
 
 func TestHandlerEscapesJobNames(t *testing.T) {
 	t.Parallel()
-	// A job name is caller data: it MUST be escaped, not interpreted (#38).
+
 	h := ui.Handler(func() ui.Overview {
 		return ui.Overview{Leadership: "unknown"}
 	}, func(context.Context) []ui.HistoryRow {

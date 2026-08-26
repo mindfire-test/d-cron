@@ -30,17 +30,14 @@ func TestAdvisoryHoldsLockRoundTrip(t *testing.T) {
 
 	be := elector.NewStdBackend(conn)
 
-	// Deliberately nasty keys: negative, low word with bit 31 set, both,
-	// and all-bits-set (-1), plus the real keys derived for the suite's
-	// namespaces.
 	keys := []int64{
 		elector.LockKey("it-failover"),
 		elector.LockKey("dcron_it_migrate"),
 		-1,
-		0x7fffffffffffffff, // max int64
-		2147483649,         // 0x80000001: low word bit 31 set, positive key
+		0x7fffffffffffffff,
+		2147483649,
 		-6078668925632109360,
-		918273645, // plain positive, low word bit 31 clear
+		918273645,
 	}
 
 	for _, key := range keys {
@@ -63,7 +60,6 @@ func TestAdvisoryHoldsLockRoundTrip(t *testing.T) {
 				t.Fatal("HoldsLock=false on the session that OWNS the lock — leadership flap regression")
 			}
 
-			// A DIFFERENT session must not "hold" it (pid is part of the probe).
 			other, err := db.Conn(ctx)
 			if err != nil {
 				t.Fatal(err)
@@ -96,8 +92,6 @@ func TestAdvisoryHoldsLockRoundTrip(t *testing.T) {
 	}
 }
 
-// electorKeyLabel renders a key for t.Run names, keeping the (-) and the
-// low-word shape visible in output.
 func electorKeyLabel(k int64) string {
 	if k < 0 {
 		return "neg_0x" + uint64String(uint64(k))

@@ -77,9 +77,6 @@ func ParseSeconds(expr string, loc *time.Location) (Schedule, error) {
 	return parseCronSeconds(expr, loc)
 }
 
-// descriptors maps the named schedules to their equivalent 5-field cron
-// expressions (issue #15). @yearly and @annually, @daily and @midnight are
-// aliases.
 var descriptors = map[string]string{
 	"@yearly":   "0 0 1 1 *",
 	"@annually": "0 0 1 1 *",
@@ -129,7 +126,6 @@ func (s OnceSchedule) Next(t time.Time) time.Time {
 	return s.at
 }
 
-// Cron field bounds.
 const (
 	minMinute = 0
 	maxMinute = 59
@@ -155,8 +151,6 @@ type CronSchedule struct {
 	loc                           *time.Location
 }
 
-// searchWindow is how far Next may scan (in days): one full leap cycle, so a
-// schedule like "0 0 29 2 *" always finds its next February 29.
 const searchWindowDays = 1464
 
 // Next implements Schedule by scanning field-by-field. A valid cron expression
@@ -204,8 +198,6 @@ func (c CronSchedule) matches(t time.Time) bool {
 	return true
 }
 
-// parseCron parses a 5-field vixie-style cron expression (minute hour dom
-// month dow). Month and day-of-week fields accept names (issue #15).
 func parseCron(expr string, loc *time.Location) (CronSchedule, error) {
 	fields := strings.Fields(expr)
 	if len(fields) != 5 {
@@ -241,9 +233,6 @@ func parseCron(expr string, loc *time.Location) (CronSchedule, error) {
 	}, nil
 }
 
-// parseCronSeconds parses a 6-field vixie-style cron expression (second minute
-// hour dom month dow). The seconds field is numeric only; month and day-of-week
-// still accept names (issue #15, FR-212).
 func parseCronSeconds(expr string, loc *time.Location) (CronSchedule, error) {
 	fields := strings.Fields(expr)
 	if len(fields) != 6 {
@@ -285,7 +274,6 @@ func parseCronSeconds(expr string, loc *time.Location) (CronSchedule, error) {
 	}, nil
 }
 
-// normalizeDOW maps 7 (a common alias for Sunday) to 0.
 func normalizeDOW(v int) int {
 	if v == 7 {
 		return 0

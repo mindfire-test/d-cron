@@ -11,8 +11,6 @@ import (
 	"github.com/mindfire-test/d-cron/metrics"
 )
 
-// newInstanceID returns a short random hex id that identifies this scheduler
-// process in leadership-transition logs (SDS §3.5).
 func newInstanceID() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -28,7 +26,6 @@ func newInstanceID() string {
 // which defaults to an automatic probe (SDS §3.4).
 type Option func(*options)
 
-// options is the resolved scheduler configuration.
 type options struct {
 	namespace    string
 	location     *time.Location
@@ -36,22 +33,19 @@ type options struct {
 	drainTimeout time.Duration
 	logger       *slog.Logger
 
-	instance      string // host-unique id stamped into leadership logs
+	instance      string
 	sessionStable bool
 	lockConn      func(ctx context.Context) (*sql.Conn, error)
-	secondsField  bool // parse specs as 6-field cron with a leading seconds field
+	secondsField  bool
 
-	// Phase 2 observability configuration.
-	hooks []Hook           // issue #39: terminal-outcome notification hooks
-	rec   metrics.Recorder // issue #36: metrics sink (Noop when unset)
+	hooks []Hook
+	rec   metrics.Recorder
 
-	// Phase 2 history (issue #34/#35). history=true when WithHistory was called.
 	history   bool
-	retention time.Duration // <=0 keeps history indefinitely
-	schema    string        // default "dcron"
+	retention time.Duration
+	schema    string
 }
 
-// defaultOptions returns the documented defaults.
 func defaultOptions() options {
 	return options{
 		namespace:    "default",

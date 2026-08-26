@@ -100,7 +100,7 @@ func TestRunCanceled(t *testing.T) {
 
 func TestBackoff(t *testing.T) {
 	r := executor.Retry{Backoff: 100 * time.Millisecond, Factor: 2, MaxBackoff: 300 * time.Millisecond}
-	// 100, 200, 400->300 capped
+
 	if got := r.Delay(1); got != 200*time.Millisecond {
 		t.Fatalf("backoff(1)=%v, want 200ms", got)
 	}
@@ -117,8 +117,6 @@ func TestBackoff(t *testing.T) {
 }
 
 func TestGroupWaitWaitsForMembers(t *testing.T) {
-	// Cancellation flows through the job context (the scheduler cancels it on
-	// shutdown/demotion), and Wait only waits for the members.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	g := executor.NewGroup()
@@ -132,7 +130,7 @@ func TestGroupWaitWaitsForMembers(t *testing.T) {
 			return ctx.Err()
 		}, executor.Retry{Attempts: 1}, nil)
 	<-started
-	cancel() // shutdown signal
+	cancel()
 	if err := g.Wait(context.Background()); err != nil {
 		t.Fatalf("Wait: %v", err)
 	}
@@ -152,7 +150,7 @@ func TestGroupWaitBoundedByDrain(t *testing.T) {
 		func(ctx context.Context) error {
 			close(started)
 			<-ctx.Done()
-			time.Sleep(40 * time.Millisecond) // outlives the drain deadline
+			time.Sleep(40 * time.Millisecond)
 			return ctx.Err()
 		}, executor.Retry{Attempts: 1}, nil)
 	<-started

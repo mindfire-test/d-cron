@@ -11,8 +11,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// startPostgresContainer boots a throwaway PostgreSQL 16 and returns a DSN
-// plus a cleanup func. It is only called when DCRON_TEST_DSN is unset.
 func startPostgresContainer(ctx context.Context) (dsn string, closer func(), err error) {
 	req := testcontainers.ContainerRequest{
 		Image:        "postgres:16-alpine",
@@ -24,8 +22,6 @@ func startPostgresContainer(ctx context.Context) (dsn string, closer func(), err
 		},
 		AutoRemove: true,
 		Cmd: []string{
-			// Mirror the keepalive posture the README mandates for prod so
-			// the suite exercises the same failure modes.
 			"-c", "tcp_keepalives_idle=30",
 			"-c", "tcp_keepalives_interval=10",
 		},

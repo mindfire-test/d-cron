@@ -44,11 +44,6 @@ var (
 	ErrSessionStabilityUnasserted = errors.New("dcron: session stability not asserted; refusing to start. PgBouncer in transaction mode corrupts advisory-lock semantics (two leaders, orphaned lock). Pass WithSessionStableConnection() to assert a direct/session-mode connection, or WithDedicatedLockConn/WithDedicatedLockDSN to supply a dedicated connection that bypasses any pooler")
 )
 
-// Typed, actionable errors (issue #26). Each carries the identity of the
-// affected job or configuration key and implements errors.Is against the
-// matching sentinel above, so callers can keep using errors.Is while also
-// errors.As-ing for the structured type and its context.
-
 // JobExistsError is returned by Add when name is already registered. It names
 // the duplicate job so callers can report it directly (issue #26).
 type JobExistsError struct{ Name string }

@@ -48,8 +48,6 @@ type HistoryRow struct {
 	Error       string
 }
 
-// page is the template view model. Jobs comes from the embedded Overview; no
-// shadowing field here, or the template would render an always-empty list.
 type page struct {
 	Overview
 	History []HistoryRow

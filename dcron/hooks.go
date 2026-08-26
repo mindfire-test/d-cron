@@ -34,10 +34,6 @@ func WithHooks(hooks ...Hook) Option {
 	return func(o *options) { o.hooks = append(o.hooks, hooks...) }
 }
 
-// fireHooks dispatches the result of a completed job to every registered hook
-// (issue #39) on the executor group. Hook failures are logged, not propagated.
-// Each hook runs on its own goroutine (bounded by runCtx, which is cancelled on
-// shutdown), so a slow webhook cannot stall the loop or other hooks.
 func (s *Scheduler) fireHooks(res executor.Result) {
 	s.mu.Lock()
 	hooks := s.opts.hooks
@@ -51,7 +47,6 @@ func (s *Scheduler) fireHooks(res executor.Result) {
 	}
 }
 
-// webhookPayload is the JSON body sent to a WebhookHook (issue #39).
 type webhookPayload struct {
 	Job        string `json:"job"`
 	Outcome    string `json:"outcome"`
@@ -87,8 +82,6 @@ func (w *WebhookHook) Fire(ctx context.Context, res executor.Result) error {
 	}
 	client := w.Client
 	if client == nil {
-		// Use the process-wide default client; per-call timeouts are applied via
-		// the request context below so a dead endpoint honours the budget.
 		client = http.DefaultClient
 	}
 	body := webhookPayload{
@@ -105,8 +98,7 @@ func (w *WebhookHook) Fire(ctx context.Context, res executor.Result) error {
 	if err != nil {
 		return fmt.Errorf("dcron: webhook hook: marshal payload: %w", err)
 	}
-	// Bound the whole round-trip by both the caller's shutdown context and the
-	// per-delivery timeout so a slow endpoint never outlives its budget.
+
 	reqCtx := ctx
 	if timeout > 0 {
 		var cancel context.CancelFunc
