@@ -25,7 +25,8 @@ func startPostgresContainer(ctx context.Context) (dsn string, closer func(), err
 			"-c", "tcp_keepalives_idle=30",
 			"-c", "tcp_keepalives_interval=10",
 		},
-		WaitingFor: wait.ForListeningPort("5432/tcp").
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
 			WithStartupTimeout(90 * time.Second),
 	}
 	c, err := testcontainers.GenericContainer(ctx,
