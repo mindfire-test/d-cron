@@ -39,7 +39,7 @@ type Scheduler struct {
 	mu     sync.Mutex
 	clk    *clock.Queue
 	jobs   map[string]*Job
-	leader *elector.Elector
+	leader elector.Coordinator
 	group  *executor.Group
 
 	started bool
