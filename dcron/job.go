@@ -150,3 +150,12 @@ func WithMaxLookback(d time.Duration) JobOption {
 func WithMaxCatchUpRuns(maxRuns int) JobOption {
 	return func(j *Job) { j.maxCatchUp = maxRuns }
 }
+
+// WithSinceLastSuccess schedules the next fire time relative to the completion
+// of the last successful execution (issue #46, FR-210). Requires history store.
+func WithSinceLastSuccess(d time.Duration) JobOption {
+	return func(j *Job) {
+		j.sched = clock.SinceSuccessSchedule{Interval: d}
+		j.spec = "@since_success " + d.String()
+	}
+}

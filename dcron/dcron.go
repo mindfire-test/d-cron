@@ -178,6 +178,9 @@ func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error 
 	if j.missedPolicy == MissedCatchUp && s.store == nil {
 		return fmt.Errorf("dcron: MissedCatchUp policy requires history store (WithHistory option)")
 	}
+	if _, ok := j.sched.(clock.SinceSuccessSchedule); ok && s.store == nil {
+		return fmt.Errorf("dcron: WithSinceLastSuccess requires history store (WithHistory option)")
+	}
 	s.jobs[name] = j
 	if first := sched.Next(time.Now().In(s.opts.location)); !first.IsZero() {
 		j.nextRun = first
