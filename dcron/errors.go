@@ -33,6 +33,10 @@ var (
 	// elected leader.
 	ErrNotLeader = errors.New("dcron: not the leader")
 
+	// ErrJobNotFound is returned by Pause, Resume, and Remove when the given
+	// job name is not registered (issue #50, FR-211).
+	ErrJobNotFound = errors.New("dcron: job not found")
+
 	// ErrSessionStabilityUnasserted is returned by New when the operator has not
 	// asserted session stability or supplied a dedicated lock connection (SDS
 	// §3.4, issue #12). A transaction-mode pooler silently corrupts
@@ -85,3 +89,15 @@ func (e *SessionStabilityError) Error() string { return ErrSessionStabilityUnass
 func (e *SessionStabilityError) Is(target error) bool {
 	return target == ErrSessionStabilityUnasserted
 }
+
+// JobNotFoundError is returned by Pause, Resume, and Remove when the given job
+// name is not registered (issue #50, FR-211).
+type JobNotFoundError struct{ Name string }
+
+// Error implements error.
+func (e *JobNotFoundError) Error() string {
+	return fmt.Sprintf("dcron: job %q not found", e.Name)
+}
+
+// Is allows errors.Is(err, ErrJobNotFound) to match.
+func (e *JobNotFoundError) Is(target error) bool { return target == ErrJobNotFound }

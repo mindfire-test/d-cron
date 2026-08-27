@@ -64,6 +64,7 @@ type Job struct {
 	lastError    string
 	lastDuration time.Duration
 	running      bool
+	paused       bool
 }
 
 // Name returns the job's unique identifier.

@@ -271,3 +271,90 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 	}
 	return firstErr
 }
+
+// Pause prevents a registered job from being dispatched on future fire times.
+// Any in-flight execution is allowed to finish. The job remains in the registry
+// and its next-run time continues to be calculated; call Resume to re-enable it.
+// Safe to call after Start (issue #50, FR-211).
+func (s *Scheduler) Pause(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j, ok := s.jobs[name]
+	if !ok {
+		return &JobNotFoundError{Name: name}
+	}
+	j.statusMu.Lock()
+	j.paused = true
+	j.statusMu.Unlock()
+	s.opts.logger.Info("dcron: job paused", "job", name)
+	return nil
+}
+
+// Resume re-enables a previously paused job. If the job was never paused this
+// is a no-op. Safe to call after Start (issue #50, FR-211).
+func (s *Scheduler) Resume(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j, ok := s.jobs[name]
+	if !ok {
+		return &JobNotFoundError{Name: name}
+	}
+	j.statusMu.Lock()
+	j.paused = false
+	j.statusMu.Unlock()
+	s.opts.logger.Info("dcron: job resumed", "job", name)
+	return nil
+}
+
+// Remove unregisters a job at runtime. Any in-flight execution is allowed to
+// finish; future fire times are silently dropped. The job name can be
+// re-registered afterwards (issue #50, FR-211).
+func (s *Scheduler) Remove(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.jobs[name]; !ok {
+		return &JobNotFoundError{Name: name}
+	}
+	delete(s.jobs, name)
+	s.opts.logger.Info("dcron: job removed", "job", name)
+	return nil
+}
+
+// AddDynamic registers a new job at runtime, after Start has been called. It
+// accepts the same arguments as Add and may be called concurrently with the
+// scheduler loop. The first fire time is calculated from time.Now() (issue #50,
+// FR-211).
+func (s *Scheduler) AddDynamic(name, spec string, fn JobFunc, opts ...JobOption) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if fn == nil {
+		return ErrNilJob
+	}
+	if _, exists := s.jobs[name]; exists {
+		return &JobExistsError{Name: name}
+	}
+	var sched clock.Schedule
+	var err error
+	if s.opts.secondsField {
+		sched, err = clock.ParseSeconds(spec, s.opts.location)
+	} else {
+		sched, err = clock.Parse(spec, s.opts.location)
+	}
+	if err != nil {
+		return &InvalidSpecError{Name: name, Spec: spec}
+	}
+	j := &Job{name: name, spec: spec, sched: sched, fn: fn, overlap: true}
+	for _, opt := range opts {
+		opt(j)
+	}
+	if j.missedPolicy == MissedCatchUp && s.store == nil {
+		return fmt.Errorf("dcron: MissedCatchUp policy requires history store (WithHistory option)")
+	}
+	s.jobs[name] = j
+	if first := sched.Next(time.Now().In(s.opts.location)); !first.IsZero() {
+		j.nextRun = first
+		heap.Push(s.clk, &clock.Job{Name: name, FireAt: first, Sched: sched})
+	}
+	s.opts.logger.Info("dcron: job added dynamically", "job", name, "spec", spec)
+	return nil
+}

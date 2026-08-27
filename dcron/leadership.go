@@ -79,6 +79,7 @@ type JobStatus struct {
 	LastError    string
 	LastDuration time.Duration
 	Running      bool
+	Paused       bool
 }
 
 // Jobs returns a point-in-time snapshot of every registered job's status
@@ -98,6 +99,7 @@ func (s *Scheduler) Jobs() []JobStatus {
 			LastError:    j.lastError,
 			LastDuration: j.lastDuration,
 			Running:      j.running,
+			Paused:       j.paused,
 		}
 		j.statusMu.Unlock()
 		statuses = append(statuses, status)

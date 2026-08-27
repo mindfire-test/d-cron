@@ -110,6 +110,13 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 		} else {
 			j.nextRun = time.Time{}
 		}
+		j.statusMu.Lock()
+		isPaused := j.paused
+		j.statusMu.Unlock()
+		if isPaused {
+			s.opts.logger.Info("dcron: skipping fire for paused job", "job", j.name)
+			continue
+		}
 		if !j.overlap && !j.busy.TryLock() {
 			if j.overlapPolicy == OverlapQueue {
 				j.queuedRun = true
