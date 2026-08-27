@@ -71,7 +71,8 @@ func NewPostgres(t testing.TB) (*sql.DB, *PostgresContainer) {
 			"-c", "tcp_keepalives_idle=30",
 			"-c", "tcp_keepalives_interval=10",
 		},
-		WaitingFor: wait.ForListeningPort("5432/tcp").
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
 			WithStartupTimeout(90 * time.Second),
 	}
 
@@ -103,8 +104,15 @@ func NewPostgres(t testing.TB) (*sql.DB, *PostgresContainer) {
 		t.Fatalf("testutil: open db: %v", err)
 	}
 
-	if err := db.PingContext(ctx); err != nil {
-		t.Fatalf("testutil: ping db: %v", err)
+	var pingErr error
+	for range 10 {
+		if pingErr = db.PingContext(ctx); pingErr == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if pingErr != nil {
+		t.Fatalf("testutil: ping db: %v", pingErr)
 	}
 
 	t.Cleanup(func() { _ = db.Close() })

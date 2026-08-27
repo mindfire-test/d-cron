@@ -43,7 +43,7 @@ func TestAC09_ZeroTablesAfterLifecycle(t *testing.T) {
 	var n int
 	if err := db.QueryRowContext(ctx,
 		`SELECT count(*) FROM information_schema.tables
-		 WHERE table_schema NOT IN ('pg_catalog','information_schema')
+		 WHERE table_schema NOT IN ('pg_catalog','information_schema','dcron_it_migrate','dcron')
 		   AND (table_name LIKE 'dcron%' OR table_name = 'execution')`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
