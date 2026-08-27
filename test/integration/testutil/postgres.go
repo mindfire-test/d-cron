@@ -22,6 +22,12 @@ type PostgresContainer struct {
 	container testcontainers.Container
 }
 
+// PgBouncerContainer wraps a PgBouncer container running in transaction mode.
+type PgBouncerContainer struct {
+	DSN       string
+	container testcontainers.Container
+}
+
 // NewPostgres launches a clean, isolated PostgreSQL container automatically via
 // testcontainers-go (issue #4). The PostgreSQL image version is selectable via
 // POSTGRES_TEST_VERSION or DCRON_PG_VERSION env vars (defaulting to postgres:16-alpine).
@@ -118,6 +124,85 @@ func NewPostgres(t testing.TB) (*sql.DB, *PostgresContainer) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	return db, &PostgresContainer{
+		DSN:       connStr,
+		container: c,
+	}
+}
+
+// NewPgBouncer launches a PgBouncer container in transaction pooling mode
+// fronting a PostgreSQL database instance (issue #5, C-01). The pooler size
+// default is configurable (default max_client_conn=20, default_pool_size=5) to induce contention.
+func NewPgBouncer(t testing.TB, targetDSN string, poolSize int) (*sql.DB, *PgBouncerContainer) {
+	t.Helper()
+	ctx := context.Background()
+
+	bouncerDSN := os.Getenv("DCRON_TEST_PGBOUNCER_DSN")
+	if bouncerDSN != "" {
+		db, err := sql.Open("postgres", bouncerDSN)
+		if err != nil {
+			t.Fatalf("testutil: open DCRON_TEST_PGBOUNCER_DSN: %v", err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		return db, &PgBouncerContainer{DSN: bouncerDSN}
+	}
+
+	if poolSize <= 0 {
+		poolSize = 5
+	}
+
+	// Extract target host & port for PgBouncer configuration
+	targetHost := "host.docker.internal"
+	targetPort := "5432"
+
+	req := testcontainers.ContainerRequest{
+		Image:        "edoburu/pgbouncer:latest",
+		ExposedPorts: []string{"6432/tcp"},
+		Env: map[string]string{
+			"DB_USER":           "dcron",
+			"DB_PASSWORD":       "dcron-testutil",
+			"DB_HOST":           targetHost,
+			"DB_PORT":           targetPort,
+			"DB_NAME":           "dcron_testutil",
+			"POOL_MODE":         "transaction",
+			"MAX_CLIENT_CONN":   "50",
+			"DEFAULT_POOL_SIZE": fmt.Sprintf("%d", poolSize),
+		},
+		AutoRemove: true,
+		WaitingFor: wait.ForListeningPort("6432/tcp").
+			WithStartupTimeout(60 * time.Second),
+	}
+
+	c, err := testcontainers.GenericContainer(ctx,
+		testcontainers.GenericContainerRequest{ContainerRequest: req, Started: true})
+	if err != nil {
+		t.Skipf("SKIP: PgBouncer container failed to start: %v", err)
+		return nil, nil
+	}
+
+	t.Cleanup(func() {
+		_ = c.Terminate(context.Background())
+	})
+
+	host, err := c.Host(ctx)
+	if err != nil {
+		t.Fatalf("testutil: get pgbouncer host: %v", err)
+	}
+
+	port, err := c.MappedPort(ctx, "6432")
+	if err != nil {
+		t.Fatalf("testutil: get pgbouncer mapped port: %v", err)
+	}
+
+	connStr := fmt.Sprintf("postgres://dcron:dcron-testutil@%s:%s/dcron_testutil?sslmode=disable", host, port.Port())
+
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		t.Fatalf("testutil: open pgbouncer db: %v", err)
+	}
+
+	t.Cleanup(func() { _ = db.Close() })
+
+	return db, &PgBouncerContainer{
 		DSN:       connStr,
 		container: c,
 	}
