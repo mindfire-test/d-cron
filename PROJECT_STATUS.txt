@@ -1,0 +1,92 @@
+================================================================================
+           d-cron — COMPLETE 52-ISSUE STATUS & VERIFICATION REPORT
+================================================================================
+
+1. PROJECT GOAL
+--------------------------------------------------------------------------------
+d-cron is an embeddable Go library that provides safe, coordinated cron-style 
+job scheduling across an arbitrary number of container replicas — using ONLY 
+the existing PostgreSQL database your application operates.
+
+Key Goal: Prevent N replicas from executing the same scheduled job N times 
+simultaneously, with zero new infrastructure dependencies (no Redis, no etcd, 
+no standalone daemon clusters, zero table migrations for Phase 1 core).
+
+2. COMPLETE ISSUE VERIFICATION MATRIX (52 ISSUES TOTAL)
+--------------------------------------------------------------------------------
+
+PHASE 0 — BOOTSTRAP (5/5 COMPLETED)
+  [x] #1  — Decide project name (github.com/mindfire-test/d-cron)
+  [x] #2  — Repository scaffolding and licence (Apache-2.0)
+  [x] #3  — CI: build, lint, race, multi-version PostgreSQL matrix
+  [x] #4  — Test harness: ephemeral PostgreSQL via testcontainers (test/integration/main_test.go)
+  [x] #5  — Test harness: PgBouncer in transaction mode (test/integration/pooler_regression_test.go)
+
+PHASE 1 — MVP: COORDINATED CRON (27/27 COMPLETED)
+  [x] #6  — Lock key derivation and namespacing (sha256 lockKey derivation)
+  [x] #7  — Elector: acquire and hold lock on dedicated *sql.Conn connection
+  [x] #8  — Elector state machine (UNKNOWN -> STANDBY / LEADER -> DEMOTING)
+  [x] #9  — Standby polling with ±20% jitter
+  [x] #10 — Liveness check without re-acquiring lock (re-entrancy safety)
+  [x] #11 — Explicit advisory lock release on graceful shutdown (pg_advisory_unlock)
+  [x] #12 — Session-stability gate (WithSessionStableConnection / WithDedicatedLockDSN)
+  [x] #13 — Startup preflight: pool capacity check (MaxOpenConnections > 1)
+  [x] #14 — Startup preflight: TCP keepalive detection and warning
+  [x] #15 — Cron expression parser (5-field & 6-field seconds opt-in)
+  [x] #16 — Schedule interface, cron and interval implementations
+  [x] #17 — Scheduler loop: min-heap, async dispatch, timezone support
+  [x] #18 — Panic recovery boundary capturing debug stack trace (*PanicError)
+  [x] #19 — Per-attempt execution timeout (context cancellation)
+  [x] #20 — Retry policy with exponential backoff & jitter (abort on demotion)
+  [x] #21 — Deterministic idempotency key injection (dcron.IdempotencyKey(ctx))
+  [x] #22 — Graceful shutdown with bounded drain timeout (WithDrainTimeout)
+  [x] #23 — Public API: Scheduler, functional options, job registration
+  [x] #24 — pgx support alongside database/sql
+  [x] #25 — Structured logging via log/slog (no credential leakage)
+  [x] #26 — Typed, actionable errors (errors.go)
+  [x] #27 — Single-replica parity with in-process cron
+  [x] #28 — Integration test suite (testcontainers integration test package)
+  [x] #29 — Five-replica soak test (test/integration/elector_lifecycle_test.go)
+  [x] #30 — README, correctness model, and job-authoring guide (README.md)
+  [x] #31 — Migration guide from robfig/cron
+  [x] #32 — Examples: minimal and Kubernetes (examples/minimal, examples/kubernetes)
+
+PHASE 2 — OBSERVABILITY (8/8 COMPLETED)
+  [x] #33 — One-off jobs (AddOnce with heap eviction)
+  [x] #34 — Store package with idempotent DDL schema migrations (dcron.execution)
+  [x] #35 — Execution history recording and retention pruning
+  [x] #36 — Prometheus metrics subpackage (metrics.Recorder interface & keys)
+  [x] #37 — Leadership() three-state accessor & HealthCheck(ctx) probe
+  [x] #38 — Embedded web dashboard (ui.Handler with embed.FS HTML template)
+  [x] #39 — Failure & completion notification hooks (WithHooks / WebhookHook)
+  [x] #40 — Phase 2 documentation update (README.md Section 4)
+
+PHASE 3 — CORRECTNESS HARDENING (8 ISSUES PENDING / LEFT TO WORK ON)
+  [ ] #41 — leader_epoch table and monotonic increment (ON CONFLICT RETURNING epoch)
+  [ ] #42 — Epoch in context and fenced dcron database writes (INSERT...SELECT WHERE EXISTS)
+  [ ] #43 — Fence() helper for user transactions (SELECT epoch ... FOR SHARE lock)
+  [ ] #44 — Overlap policy enforcement (OverlapSkip default, OverlapQueue depth 1, OverlapAllow)
+  [ ] #45 — Missed-run catch-up with hard caps (MissedSkip default, MissedCatchUp with lookback window & max cap)
+  [ ] #46 — Interval-since-last-success scheduling (sinceSuccessSchedule)
+  [ ] #47 — OpenTelemetry tracing subpackage (otel package emitting OTel spans)
+  [ ] #48 — Phase 3 split-brain chaos test (SIGSTOP pause & fencing verification)
+
+PHASE 4 — EXTENSIBILITY (4 ISSUES PENDING / LEFT TO WORK ON)
+  [ ] #49 — Extract Coordinator interface (backend-agnostic coordination layer)
+  [ ] #50 — Runtime job management (Add, Pause, Resume, Remove without restart)
+  [ ] #51 — Administrative API (REST / gRPC management API gated behind auth)
+  [ ] #52 — Alternative coordination backends (Redis / etcd contrib backends)
+
+--------------------------------------------------------------------------------
+3. SUMMARY OF DONE VS LEFT
+--------------------------------------------------------------------------------
+- COMPLETED: 40 issues (#1 through #40) across Phase 0, Phase 1, and Phase 2.
+- REMAINING: 12 issues (#41 through #52) across Phase 3 and Phase 4.
+
+4. TEST EXECUTION SUMMARY
+--------------------------------------------------------------------------------
+- All unit test packages under test/ (clock, dcron, elector, executor, metrics, 
+  store, ui) pass 100% (go test -count=1 ./test/...).
+- All integration tests in test/integration pass 100% against real PostgreSQL 
+  container (go test -tags integration -count=1 .).
+- Static analysis (go vet ./..., golangci-lint run ./..., go build ./...) pass 100%.

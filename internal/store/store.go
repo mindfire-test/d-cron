@@ -40,7 +40,8 @@ type Store struct {
 	db     *sql.DB
 	schema string
 
-	exec string
+	exec  string
+	epoch string
 }
 
 // New returns a Store over db using schema (default "dcron"). It validates the
@@ -57,7 +58,25 @@ func New(db *sql.DB, schema string) (*Store, error) {
 		db:     db,
 		schema: schema,
 		exec:   schema + ".execution",
+		epoch:  schema + ".leader_epoch",
 	}, nil
+}
+
+// IncrementEpoch increments and returns the leader epoch for a namespace upon
+// leadership acquisition (issue #41, FR-110, FR-507).
+func (s *Store) IncrementEpoch(ctx context.Context, namespace, instanceID string) (int64, error) {
+	q := `INSERT INTO ` + s.epoch + ` (namespace, epoch, instance_id, acquired_at)
+		VALUES ($1, 1, $2, now())
+		ON CONFLICT (namespace) DO UPDATE
+		  SET epoch       = ` + s.epoch + `.epoch + 1,
+		      instance_id = EXCLUDED.instance_id,
+		      acquired_at = now()
+		RETURNING epoch`
+	var epoch int64
+	if err := s.db.QueryRowContext(ctx, q, namespace, instanceID).Scan(&epoch); err != nil {
+		return 0, fmt.Errorf("store: increment epoch: %w", err)
+	}
+	return epoch, nil
 }
 
 // Schema returns the configured schema name.

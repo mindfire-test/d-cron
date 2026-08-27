@@ -60,6 +60,13 @@ func (s *Scheduler) onPromotion() {
 	s.termCtx, s.termCancel = context.WithCancel(s.runCtx)
 	s.opts.rec.SetLeader(s.opts.instance, true)
 	s.opts.rec.LeaderTransition(s.opts.instance)
+	if s.store != nil {
+		if epoch, err := s.store.IncrementEpoch(s.runCtx, s.opts.namespace, s.opts.instance); err == nil {
+			s.opts.logger.Info("dcron: leader epoch incremented", "epoch", epoch)
+		} else {
+			s.opts.logger.Warn("dcron: leader epoch increment failed", "err", err)
+		}
+	}
 }
 
 func (s *Scheduler) onDemotion() {
