@@ -72,6 +72,14 @@ By participating in this project, you agree to abide by the [CODE_OF_CONDUCT.md]
 
 ---
 
+## Testing & Pooler Safety Verification
+
+- **Unit Tests**: Run with `go test ./test/... -count=1`.
+- **Integration Tests**: Run with `go test -tags integration ./...` (requires Docker or setting `DCRON_TEST_DSN`).
+- **PgBouncer Pooler Safety Testing**: Any changes or regression suites touching connection stability, election gates, or advisory lock holding **MUST** use `testutil.NewPgBouncer(t, targetDSN, poolSize)` in **transaction pooling mode** to verify that pooler safety assertions (`WithSessionStableConnection`, `ErrSessionStabilityUnasserted`) correctly reject pooled connection hazards (`SRS C-01`).
+
+---
+
 ## Project Structure
 
 ```

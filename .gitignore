@@ -20,8 +20,5 @@
 .DS_Store
 Thumbs.db
 
-# Internal working notes (kept local only, never pushed)
-PROJECT_CONTEXT.txt
-DEVELOPMENT.md
 today_update.txt
 PROJECT_STATUS.txt
