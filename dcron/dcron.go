@@ -15,6 +15,7 @@ import (
 	"container/heap"
 	"context"
 	"database/sql"
+	"fmt"
 	"sync"
 	"time"
 
@@ -173,6 +174,9 @@ func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error 
 	j := &Job{name: name, spec: spec, sched: sched, fn: fn, overlap: true}
 	for _, opt := range opts {
 		opt(j)
+	}
+	if j.missedPolicy == MissedCatchUp && s.store == nil {
+		return fmt.Errorf("dcron: MissedCatchUp policy requires history store (WithHistory option)")
 	}
 	s.jobs[name] = j
 	if first := sched.Next(time.Now().In(s.opts.location)); !first.IsZero() {
