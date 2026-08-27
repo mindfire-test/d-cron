@@ -19,14 +19,29 @@ type JobFunc func(ctx context.Context) error
 // Jobs are created through (Scheduler).Add and are not intended to be
 // constructed directly. All fields are internal; callers only need the job
 // name to reason about a registration.
+// OverlapPolicy governs behaviour when a fire time is reached while a previous
+// run of the same job is still active (SDS §7.2, issue #44, FR-308).
+type OverlapPolicy int
+
+const (
+	// OverlapSkip skips the new fire time (default per SRS FR-308).
+	OverlapSkip OverlapPolicy = iota
+	// OverlapQueue queues a single run to execute after the current run finishes.
+	OverlapQueue
+	// OverlapAllow permits concurrent executions of the same job.
+	OverlapAllow
+)
+
 type Job struct {
-	name    string
-	spec    string
-	sched   clock.Schedule
-	fn      JobFunc
-	retry   executor.Retry
-	overlap bool
-	busy    sync.Mutex
+	name          string
+	spec          string
+	sched         clock.Schedule
+	fn            JobFunc
+	retry         executor.Retry
+	overlap       bool
+	overlapPolicy OverlapPolicy
+	queuedRun     bool
+	busy          sync.Mutex
 
 	statusMu     sync.Mutex
 	nextRun      time.Time
@@ -89,7 +104,19 @@ func WithRetry(r Retry) JobOption {
 }
 
 // WithNoOverlap suppresses firing a job while its previous run is still
-// active. Overlap is allowed by default.
+// active. Same as WithOverlapPolicy(OverlapSkip).
 func WithNoOverlap() JobOption {
-	return func(j *Job) { j.overlap = false }
+	return func(j *Job) {
+		j.overlapPolicy = OverlapSkip
+		j.overlap = false
+	}
+}
+
+// WithOverlapPolicy sets the overlap policy for a job (SDS §7.2, issue #44, FR-308).
+// Options are OverlapSkip (default), OverlapQueue, and OverlapAllow.
+func WithOverlapPolicy(p OverlapPolicy) JobOption {
+	return func(j *Job) {
+		j.overlapPolicy = p
+		j.overlap = (p == OverlapAllow)
+	}
 }

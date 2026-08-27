@@ -111,7 +111,13 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 			j.nextRun = time.Time{}
 		}
 		if !j.overlap && !j.busy.TryLock() {
-			s.opts.logger.Warn("dcron: skipping fire while previous run is active", "job", j.name)
+			if j.overlapPolicy == OverlapQueue {
+				j.queuedRun = true
+				s.opts.logger.Info("dcron: queuing fire while previous run is active", "job", j.name)
+			} else {
+				s.opts.logger.Warn("dcron: skipping fire while previous run is active", "job", j.name)
+				s.opts.rec.MissedRun(j.name)
+			}
 			continue
 		}
 		s.invoke(j, epoch, cd.FireAt)
@@ -186,6 +192,12 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 			}
 		}
 		s.fireHooks(res)
+		if j.queuedRun {
+			j.queuedRun = false
+			if j.busy.TryLock() {
+				go s.invoke(j, epoch, time.Now())
+			}
+		}
 	}
 	s.group.Go(s.termCtx, j.name, executor.Func(fn), j.retry, s.opts.logger, onComplete)
 }
