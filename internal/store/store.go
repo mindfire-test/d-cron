@@ -3,9 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrFenced is returned when a write is rejected because the leader epoch is stale.
+var ErrFenced = errors.New("store: fenced write rejected due to stale leader epoch")
 
 // Status is the terminal state of one execution row (SDS §10, issue #35).
 type Status string
@@ -82,13 +86,17 @@ func (s *Store) IncrementEpoch(ctx context.Context, namespace, instanceID string
 // Schema returns the configured schema name.
 func (s *Store) Schema() string { return s.schema }
 
-// Record inserts the opening "status = running" row and returns the new id.
-// The write is stamped with the leader epoch (Phase 3 adds the guarded form;
-// Phase 2 stamps only, per SDS §10).
+// Record inserts the opening "status = running" row guarded by the leader epoch.
+// If the epoch is stale (demoted leader), zero rows are inserted and ErrFenced
+// is returned (issue #42, FR-310).
 func (s *Store) Record(ctx context.Context, e Execution) (int64, error) {
 	q := `INSERT INTO ` + s.exec + `
 		(namespace, job_name, scheduled_at, started_at, status, attempt, instance_id, leader_epoch)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8
+		WHERE EXISTS (
+			SELECT 1 FROM ` + s.epoch + `
+			WHERE namespace = $1 AND epoch = $8
+		)
 		RETURNING id`
 	var id int64
 	err := s.db.QueryRowContext(
@@ -97,22 +105,25 @@ func (s *Store) Record(ctx context.Context, e Execution) (int64, error) {
 		string(e.Status), e.Attempt, e.InstanceID, e.LeaderEpoch,
 	).Scan(&id)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrFenced
+		}
 		return 0, fmt.Errorf("store: record execution: %w", err)
 	}
 	return id, nil
 }
 
-// Finish updates a running row to its terminal state. It reports how many rows
-// were affected so the caller can detect a fenced write (zero rows ⇒ stale
-// epoch, Phase 3). History write failures are surfaced to the caller, which
-// must never fail the job itself (SDS §10 / issue #35).
+// Finish updates a running row to its terminal state guarded by current epoch.
+// It reports how many rows were affected so the caller can detect a fenced write
+// (zero rows ⇒ stale epoch, issue #42, FR-310).
 func (s *Store) Finish(ctx context.Context, id int64, e Execution) (int64, error) {
 	q := `UPDATE ` + s.exec + `
 		SET status = $1, finished_at = $2, duration_ms = $3, error = NULLIF($4, ''), attempt = $5
-		WHERE id = $6`
+		WHERE id = $6
+		  AND leader_epoch = (SELECT epoch FROM ` + s.epoch + ` WHERE namespace = $7)`
 	res, err := s.db.ExecContext(
 		ctx, q,
-		string(e.Status), e.FinishedAt, e.DurationMs, e.Error, e.Attempt, id,
+		string(e.Status), e.FinishedAt, e.DurationMs, e.Error, e.Attempt, id, e.Namespace,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("store: finish execution: %w", err)

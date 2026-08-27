@@ -169,14 +169,19 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 		j.statusMu.Unlock()
 		s.opts.rec.JobFinished(j.name, outcomeToMetric(res.Outcome), res.Duration, res.Outcome == executor.OutcomeOK)
 		if s.store != nil && rowID != 0 {
-			if _, err := s.store.Finish(context.Background(), rowID, store.Execution{
+			rows, err := s.store.Finish(context.Background(), rowID, store.Execution{
+				Namespace:  s.opts.namespace,
 				Status:     historyStatus(res.Outcome),
 				FinishedAt: started.Add(res.Duration),
 				DurationMs: res.Duration.Milliseconds(),
 				Error:      errorString(res.Error),
 				Attempt:    res.Attempts,
-			}); err != nil {
+			})
+			if err != nil {
 				s.opts.logger.Warn("dcron: history finish failed", "job", j.name, "err", err)
+			} else if rows == 0 {
+				s.opts.logger.Warn("dcron: fenced write detected on finish", "job", j.name)
+				s.opts.rec.FencedWrite()
 			}
 		}
 		s.fireHooks(res)
