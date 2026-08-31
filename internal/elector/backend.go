@@ -42,12 +42,14 @@ type stdBackend struct {
 	conn *sql.Conn
 }
 
-// NewStdBackend wraps conn as a dedicated-lock backend.
+// NewStdBackend wraps conn as a dedicated-lock backend (issue #7, FR-104/FR-508).
+// The reserved *sql.Conn is held for the entire leadership term and reduces
+// pool capacity by 1.
 func NewStdBackend(conn *sql.Conn) Backend {
 	return &stdBackend{conn: conn}
 }
 
-// TryLock implements Backend.
+// TryLock implements Backend using non-blocking pg_try_advisory_lock (issue #7, FR-102).
 func (b *stdBackend) TryLock(ctx context.Context, key int64) (bool, int, error) {
 	var acquired bool
 	var pid int
