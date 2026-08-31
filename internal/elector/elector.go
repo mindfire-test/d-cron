@@ -187,13 +187,14 @@ func (e *Elector) emit(from, to State, reason string) {
 	}
 }
 
-// Acquire is the leadership-polling step (SDS §3.5). On a standby/unknown it
+// Acquire is the leadership-polling step (SDS §3.5, issue #8). On a standby/unknown it
 // attempts to win the lock with pg_try_advisory_lock (never the blocking form);
 // on a leader it re-confirms ownership with a read-only pg_locks probe and never
 // re-acquires — advisory locks are re-entrant, so re-try_locking would mask a
 // lost lock and break the single explicit unlock on shutdown (C-07). err is
 // surfaced to the caller so a transient database failure is logged and retried
-// rather than crashing the host (NFR-202).
+// rather than crashing the host (NFR-202). Demotes to DEMOTING within 1 poll interval
+// if lock is lost or DB is unavailable (FR-105).
 func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -202,7 +203,6 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 	case StateLeader:
 		holds, err := e.backend.HoldsLock(ctx, e.key)
 		if err != nil {
-
 			e.demote("db_unavailable")
 			return false, e.epoch, err
 		}
@@ -213,7 +213,6 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 		e.demote("lost_lock")
 		return false, e.epoch, nil
 	case StateDemoting:
-
 		return false, e.epoch, nil
 	default:
 		acquired, pid, err := e.backend.TryLock(ctx, e.key)
@@ -236,6 +235,7 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 	}
 }
 
+// demote transitions LEADER -> DEMOTING and emits transition event (issue #8, FR-105).
 func (e *Elector) demote(reason string) {
 	if e.state != StateLeader {
 		return
