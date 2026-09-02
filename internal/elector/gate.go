@@ -99,7 +99,7 @@ func ProbeKeepalive(ctx context.Context, q Querier) (idle, connCheck int, err er
 	return idle, connCheck, nil
 }
 
-// WarnKeepalive probes the keepalive GUCs and, when both are 0, logs a loud
+// WarnKeepalive probes the keepalive GUCs (issue #14, FR-113) and, when both are 0, logs a loud
 // WARN that a dead or partitioned leader will hold the lock for hours with no
 // replica promoted (SDS §12 row 3). It returns true when the configuration is
 // unsafe. A probe error is logged at Debug and treated as unknown, never fatal.
