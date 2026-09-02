@@ -83,7 +83,7 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 		opt(&cfg)
 	}
 	if !cfg.sessionStable && cfg.lockConn == nil {
-		return nil, &SessionStabilityError{}
+		return nil, &SessionStabilityError{} // issue #12, FR-108
 	}
 	if cfg.lockConn == nil {
 		if err := elector.PoolCapacity(db.Stats().MaxOpenConnections); err != nil {
