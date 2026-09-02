@@ -38,7 +38,7 @@ type Schedule interface {
 // Month and day-of-week fields accept names (JAN..DEC, SUN..SAT,
 // case-insensitive, full or 3-letter). loc is used to interpret cron field
 // boundaries; time.UTC is substituted when nil. 6-field expressions with a
-// leading seconds field are parsed by ParseSeconds (issue #15, FR-212).
+// leading seconds field are parsed by ParseSeconds (issue #15, FR-204, FR-212).
 func Parse(expr string, loc *time.Location) (Schedule, error) {
 	if loc == nil {
 		loc = time.UTC
