@@ -244,6 +244,9 @@ func DeriveIdempotencyKey(namespace, name string, fireAt time.Time) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// jitteredPoll calculates the standby polling interval with ±20% randomized jitter (issue #9, FR-103).
+// Default poll interval is 5s (±1s jitter, 4s-6s range). Each poll performs exactly 1 database
+// round-trip per replica per interval (NFR-102).
 func (s *Scheduler) jitteredPoll() time.Duration {
 	d := s.opts.pollInterval
 	if d < time.Millisecond {
