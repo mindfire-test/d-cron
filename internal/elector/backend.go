@@ -72,7 +72,9 @@ func (b *stdBackend) HoldsLock(ctx context.Context, key int64) (bool, error) {
 	return holds, nil
 }
 
-// Release implements Backend.
+// Release frees the advisory lock for key by executing SELECT pg_advisory_unlock($1) (issue #11, FR-107).
+// The boolean reports whether the lock was actually held by this session: false means it had
+// already been released server-side (e.g. backend exit), which the caller logs rather than treats as fatal (§3.6).
 func (b *stdBackend) Release(ctx context.Context, key int64) (bool, error) {
 	var released bool
 	err := b.conn.QueryRowContext(ctx, sqlRelease, key).Scan(&released)
