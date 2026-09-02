@@ -96,6 +96,9 @@ func (s *Scheduler) pruneHistory(now time.Time) {
 	}
 }
 
+// fireDue evaluates ticks on the Leader replica using the location resolved at construction (FR-206).
+// Job execution is strictly asynchronous via executor group — the clock loop never blocks
+// on long-running jobs (issue #17, NFR-106, FR-305).
 func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
