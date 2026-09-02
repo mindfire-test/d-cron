@@ -17,11 +17,12 @@ import (
 // schedule expression.
 var ErrInvalidSchedule = errors.New("clock: invalid schedule expression")
 
-// Schedule predicts when a job fires.
+// Schedule predicts when a job fires (issue #16). It serves as the primary extension point
+// for custom schedule types like OnceSchedule (#33) and SinceSuccessSchedule (#46).
 type Schedule interface {
 	// Next returns the next time strictly after t at which the schedule
-	// fires, in the location the schedule was parsed with. The zero time is
-	// returned when no future firing fits within the search window.
+	// fires, in the location the schedule was parsed with. Returning the zero time
+	// (time.Time{}) signals "never again" so the min-heap evicts the entry (issue #16, SDS §4 table row 3).
 	Next(t time.Time) time.Time
 }
 
