@@ -59,13 +59,12 @@ func ProbeSessionStable(ctx context.Context, q Querier) (bool, error) {
 	return SessionStableFromPIDs(p1, p2), nil
 }
 
-// PoolCapacity reports whether maxOpen is safe for advisory-lock election. A
-// single-connection pool starves both the lock and the session-stability probe
-// (FR-112, SDS §3.4). maxOpen is *sql.DB.Stats().MaxOpenConnections; 0 means
-// unlimited and is permitted.
+// PoolCapacity reports whether maxOpen is safe for advisory-lock election (issue #13, FR-112).
+// A single-connection pool (MaxOpenConns == 1) starves both the lock and the session-stability probe,
+// deadlocking the application.
 func PoolCapacity(maxOpen int) error {
 	if maxOpen == 1 {
-		return &SingleConnectionPoolError{MaxOpen: maxOpen}
+		return &SingleConnectionPoolError{MaxOpen: maxOpen} // issue #13
 	}
 	return nil
 }
