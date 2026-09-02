@@ -60,7 +60,9 @@ func (b *stdBackend) TryLock(ctx context.Context, key int64) (bool, int, error) 
 	return acquired, pid, nil
 }
 
-// HoldsLock implements Backend.
+// HoldsLock implements Backend using a read-only pg_locks query (issue #10, FR-114, C-07).
+// It verifies liveness by querying pg_locks filtered by objid and pg_backend_pid() without
+// ever re-calling pg_try_advisory_lock (which would mask lost locks due to re-entrancy).
 func (b *stdBackend) HoldsLock(ctx context.Context, key int64) (bool, error) {
 	var holds bool
 	err := b.conn.QueryRowContext(ctx, sqlHolds, key).Scan(&holds)
