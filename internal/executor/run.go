@@ -89,10 +89,10 @@ func runAttempt(ctx context.Context, name string, fn Func) (Outcome, []byte, err
 	ch := make(chan attemptResult, 1)
 	go func() {
 		defer func() {
-			if r := recover(); r != nil {
+			if r := recover(); r != nil { // issue #18, FR-302: deferred recover() boundary
 				ch <- attemptResult{
 					val:   r,
-					stack: stackDump(),
+					stack: stackDump(), // captures debug.Stack() before unwinding
 					panic: true,
 				}
 			}
