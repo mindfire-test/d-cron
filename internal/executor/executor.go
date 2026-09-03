@@ -95,9 +95,9 @@ func (r Retry) withDefaults() Retry {
 	return r
 }
 
-// Delay returns the delay to wait before the next retry. attempt is the
-// 1-indexed number of failures seen so far. Exported so callers and tests can
-// predict retry timing.
+// Delay returns the delay to wait before the next retry (issue #20, FR-306).
+// Applies exponential backoff (base * 2^attempt), max attempt cap (default 5), max backoff cap (default 5m),
+// and +/-25% randomized jitter to prevent thundering herds across replicas.
 func (r Retry) Delay(attempt int) time.Duration {
 	d := r.Backoff
 	if r.Factor > 1 {
