@@ -66,6 +66,8 @@ func wrapJobErr(name string, out Outcome, err error) error {
 	return err
 }
 
+// attemptCtx applies a per-attempt execution timeout using context.WithTimeout (issue #19, FR-304).
+// Defaults to 30 minutes, configurable per job via WithTimeout. Exceeding timeout cancels the job context.
 func attemptCtx(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if timeout > 0 {
 		return context.WithTimeout(ctx, timeout)
