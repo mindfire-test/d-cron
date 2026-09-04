@@ -269,4 +269,3 @@ func TestSchedulerStopDrainTimeout(t *testing.T) {
 		t.Fatalf("Stop took %v; want bounded by drain timeout (~50ms)", dur)
 	}
 }
-
