@@ -263,7 +263,14 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 		firstErr = err
 	}
 
-	if err := s.group.Wait(ctx); err != nil && firstErr == nil {
+	drainCtx := ctx
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && s.opts.drainTimeout > 0 {
+		var cancelDrain context.CancelFunc
+		drainCtx, cancelDrain = context.WithTimeout(ctx, s.opts.drainTimeout)
+		defer cancelDrain()
+	}
+
+	if err := s.group.Wait(drainCtx); err != nil && firstErr == nil {
 		firstErr = err
 	}
 	if err := s.leader.Close(); err != nil && firstErr == nil {
