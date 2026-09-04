@@ -237,3 +237,35 @@ func TestSchedulerKeyExposed(t *testing.T) {
 		t.Fatalf("Key() = %d; want elector.LockKey(default) = %d", got, want)
 	}
 }
+
+func TestSchedulerStopDrainTimeout(t *testing.T) {
+	s := testScheduler(newSchedBackend(), dcron.WithDrainTimeout(50*time.Millisecond))
+	started := make(chan struct{})
+	if err := s.Add("stuck", "@every 1ms", func(ctx context.Context) error {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+		<-ctx.Done()
+		time.Sleep(1 * time.Second) // stuck job
+		return ctx.Err()
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+
+	stopStart := time.Now()
+	err := s.Stop(context.Background())
+	dur := time.Since(stopStart)
+
+	if err == nil {
+		t.Fatalf("Stop err = nil; want drain timeout error context.DeadlineExceeded")
+	}
+	if dur > 500*time.Millisecond {
+		t.Fatalf("Stop took %v; want bounded by drain timeout (~50ms)", dur)
+	}
+}
