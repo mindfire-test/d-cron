@@ -101,3 +101,16 @@ func TestHandlerEmptyStates(t *testing.T) {
 		t.Errorf("empty-state notices missing:\n%s", body)
 	}
 }
+
+func TestHandlerNilOverview(t *testing.T) {
+	t.Parallel()
+	h := ui.Handler(nil, nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	if rec.Code != 500 {
+		t.Fatalf("status = %d; want 500", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "no overview provider configured") {
+		t.Errorf("unexpected body: %q", rec.Body.String())
+	}
+}

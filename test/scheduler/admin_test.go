@@ -124,6 +124,43 @@ func TestAdminHandler_Delete_RemovesJob(t *testing.T) {
 	}
 }
 
+func TestAdminHandler_Resume_NotFound(t *testing.T) {
+	s := newAdminScheduler(t)
+	h := dcron.AdminHandler(nil, s)
+
+	req := httptest.NewRequest(http.MethodPost, "/jobs/ghost/resume", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("resume unknown: got %d, want 404", rr.Code)
+	}
+}
+
+func TestAdminHandler_AuthDenied_AllEndpoints(t *testing.T) {
+	s := newAdminScheduler(t)
+	denyAuth := func(*http.Request) bool { return false }
+	h := dcron.AdminHandler(denyAuth, s)
+
+	endpoints := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/status"},
+		{http.MethodPost, "/jobs/alpha/pause"},
+		{http.MethodPost, "/jobs/alpha/resume"},
+		{http.MethodDelete, "/jobs/alpha"},
+	}
+
+	for _, ep := range endpoints {
+		req := httptest.NewRequest(ep.method, ep.path, nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("%s %s auth deny: got %d, want 403", ep.method, ep.path, rr.Code)
+		}
+	}
+}
+
 func TestAdminHandler_Delete_NotFound(t *testing.T) {
 	s := newAdminScheduler(t)
 	h := dcron.AdminHandler(nil, s)

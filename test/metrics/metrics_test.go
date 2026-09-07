@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mindfire-test/d-cron/metrics"
 )
 
 // TestCoreDoesNotLinkMetricsSDK enforces NFR-402 / D-08: the scheduler core
@@ -45,4 +47,41 @@ func TestCoreDoesNotLinkMetricsSDK(t *testing.T) {
 			t.Fatalf("walk %s: %v", root, err)
 		}
 	}
+}
+
+func TestOutcomeString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		outcome metrics.Outcome
+		want    string
+	}{
+		{metrics.OutcomeOK, "success"},
+		{metrics.OutcomeFailed, "failed"},
+		{metrics.OutcomePanicked, "panicked"},
+		{metrics.OutcomeTimedOut, "timeout"},
+		{metrics.OutcomeCanceled, "canceled"},
+		{metrics.OutcomeSkipped, "skipped"},
+		{metrics.OutcomeUnknown, "unknown"},
+		{metrics.Outcome(255), "unknown"},
+	}
+
+	for _, tt := range tests {
+		if got := tt.outcome.String(); got != tt.want {
+			t.Errorf("Outcome(%d).String() = %q; want %q", tt.outcome, got, tt.want)
+		}
+	}
+}
+
+func TestNoopRecorder(t *testing.T) {
+	t.Parallel()
+
+	var n metrics.Noop
+	n.SetLeader("inst-1", true)
+	n.SetLeader("inst-1", false)
+	n.LeaderTransition("inst-1")
+	n.JobStarted("job-1")
+	n.JobFinished("job-1", metrics.OutcomeOK, 100, true)
+	n.FencedWrite()
+	n.MissedRun("job-1")
 }
