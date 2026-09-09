@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/lib/pq"
 	dcron "github.com/mindfire-test/d-cron/dcron"
 	"github.com/mindfire-test/d-cron/internal/store"
 	"github.com/mindfire-test/d-cron/metrics"

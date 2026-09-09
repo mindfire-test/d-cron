@@ -2,8 +2,10 @@ package dcron_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -198,6 +200,67 @@ func TestWebhookHookConstruction(t *testing.T) {
 	defer cancel()
 	_ = w.Fire(ctx, executor.Result{Name: "j", Outcome: executor.OutcomeFailed})
 	http.DefaultClient.CloseIdleConnections()
+}
+
+func TestWebhookHook_HTTPDelivery(t *testing.T) {
+	var receivedMethod, receivedContentType, receivedAuthHeader string
+	var receivedBody map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedMethod = r.Method
+		receivedContentType = r.Header.Get("Content-Type")
+		receivedAuthHeader = r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	w := &dcron.WebhookHook{
+		URL:     srv.URL,
+		Timeout: 2 * time.Second,
+		Headers: map[string]string{"Authorization": "Bearer test-token"},
+	}
+
+	err := w.Fire(context.Background(), executor.Result{
+		Name:     "backup-job",
+		Outcome:  executor.OutcomeFailed,
+		Attempts: 3,
+		Duration: 1500 * time.Millisecond,
+		Error:    errors.New("db connection reset"),
+	})
+	if err != nil {
+		t.Fatalf("Fire: unexpected error: %v", err)
+	}
+
+	if receivedMethod != "POST" {
+		t.Errorf("Method = %q; want POST", receivedMethod)
+	}
+	if receivedContentType != "application/json" {
+		t.Errorf("Content-Type = %q; want application/json", receivedContentType)
+	}
+	if receivedAuthHeader != "Bearer test-token" {
+		t.Errorf("Authorization = %q; want Bearer test-token", receivedAuthHeader)
+	}
+	if receivedBody["job"] != "backup-job" {
+		t.Errorf("body job = %v; want backup-job", receivedBody["job"])
+	}
+	if receivedBody["outcome"] != "failed" {
+		t.Errorf("body outcome = %v; want failed", receivedBody["outcome"])
+	}
+	if receivedBody["error"] != "db connection reset" {
+		t.Errorf("body error = %v; want db connection reset", receivedBody["error"])
+	}
+
+	// Test non-2xx status code handling
+	errSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer errSrv.Close()
+
+	wFail := &dcron.WebhookHook{URL: errSrv.URL}
+	if err := wFail.Fire(context.Background(), executor.Result{Name: "job"}); err == nil {
+		t.Fatal("Fire: expected error on 500 status code, got nil")
+	}
 }
 
 func errIs(err, target error) bool { return errors.Is(err, target) }
