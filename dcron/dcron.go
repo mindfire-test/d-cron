@@ -1,14 +1,4 @@
-// Package dcron provides a distributed cron scheduler for horizontally scaled
-// Go applications.
-//
-// d-cron elects a single leader across replicas using PostgreSQL advisory
-// locks and executes registered jobs only on the leader, so an N-replica
-// deployment fires each job exactly once instead of N times.
-//
-// Phase 1 implements the core: leadership election (internal/elector), the
-// schedule clock and parser (internal/clock), and job execution with panic
-// recovery, retry, and bounded drain (internal/executor). The public API is
-// still evolving (v0.x); see the SDS for the intended surface.
+// Package dcron provides a distributed cron scheduler for Go applications.
 package dcron
 
 import (
@@ -26,9 +16,6 @@ import (
 )
 
 // Scheduler is a distributed cron scheduler.
-//
-// Construct it with New, register jobs with Add, then Start it. Scheduler is
-// not safe for concurrent use by multiple goroutines.
 type Scheduler struct {
 	opts options
 
@@ -54,26 +41,6 @@ type Scheduler struct {
 }
 
 // New creates a Scheduler bound to db.
-//
-// Options are applied in order on top of the defaults. New runs the Phase-1
-// safety gates before returning:
-//
-//   - Session stability (SDS §3.4, issue #12): it refuses to start unless the
-//     operator asserted session stability (WithSessionStableConnection) or
-//     supplied a dedicated lock connection (WithDedicatedLockConn /
-//     WithDedicatedLockDSN). There is deliberately NO runtime probe: measured
-//     against PgBouncer, the pg_backend_pid() probe returns the same PID every
-//     time at startup and would be a reliable false negative in exactly the
-//     dangerous case.
-//   - Pool capacity (FR-112, issue #13): when borrowing the lock connection from
-//     the caller's pool, a pool with MaxOpenConnections == 1 deadlocks election
-//     and is refused.
-//   - TCP keepalives (issue #14): a best-effort preflight WARNs when both
-//     tcp_keepalives_idle and client_connection_check_interval are 0, because a
-//     dead or partitioned leader then holds the lock for hours.
-//
-// The dedicated connection is held for the life of the scheduler and carries
-// the advisory lock. The resolved lock key is logged at INFO (issue #6).
 func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 	if db == nil {
 		return nil, ErrNilDB
@@ -83,7 +50,7 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 		opt(&cfg)
 	}
 	if !cfg.sessionStable && cfg.lockConn == nil {
-		return nil, &SessionStabilityError{} // issue #12, FR-108
+		return nil, &SessionStabilityError{}
 	}
 	if cfg.lockConn == nil {
 		if err := elector.PoolCapacity(db.Stats().MaxOpenConnections); err != nil {
@@ -134,21 +101,16 @@ func newWithBackend(backend elector.Backend, db *sql.DB, cfg options, hist *stor
 	}
 }
 
-// Key returns the resolved advisory-lock key for this scheduler's namespace
-// (issue #6). Two schedulers in the same database sharing a key contend for
-// one lock; use distinct namespaces per application.
+// Key returns the resolved advisory-lock key for this scheduler's namespace.
 func (s *Scheduler) Key() int64 { return s.leader.Key() }
 
-// InstanceID returns this scheduler's process-local identifier as it appears
-// in leadership-transition logs and history rows (issue #38: the dashboard
-// displays it alongside leadership state).
+// InstanceID returns this scheduler's process-local identifier.
 func (s *Scheduler) InstanceID() string { return s.opts.instance }
 
 // Namespace returns the namespace this scheduler was constructed with.
 func (s *Scheduler) Namespace() string { return s.opts.namespace }
 
-// Add registers a job. name must be unique, spec must be a valid schedule (see
-// clock.Parse), and fn must not be nil. Jobs must be added before Start.
+// Add registers a job with the scheduler.
 func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -189,11 +151,7 @@ func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error 
 	return nil
 }
 
-// AddOnce registers a job that fires exactly once at a fixed instant (issue
-// #33, FR-209) and is then evicted from the schedule. Everything else matches
-// Add: name must be unique and fn must not be nil. The once schedule is
-// deliberately not persisted — like every registration it is re-registered on
-// process restart (Phase 2 is in-memory by design).
+// AddOnce registers a job that fires exactly once at a fixed instant.
 func (s *Scheduler) AddOnce(name string, at time.Time, fn JobFunc, opts ...JobOption) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -221,8 +179,7 @@ func (s *Scheduler) AddOnce(name string, at time.Time, fn JobFunc, opts ...JobOp
 	return nil
 }
 
-// Start begins leadership election and job execution. The context governs the
-// life of the background loop; cancelling it (or calling Stop) shuts it down.
+// Start begins leadership election and job execution.
 func (s *Scheduler) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.started {
@@ -241,9 +198,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop halts the poll loop, releases the advisory lock, drains in-flight jobs
-// (bounded by ctx), and closes the dedicated connection. Ordering per SDS §3.6
-// and issue #22: unlock → drain → close. It is safe to call once.
+// Stop halts the scheduler loop and releases resources.
 func (s *Scheduler) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	if !s.started {
@@ -280,9 +235,6 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 }
 
 // Pause prevents a registered job from being dispatched on future fire times.
-// Any in-flight execution is allowed to finish. The job remains in the registry
-// and its next-run time continues to be calculated; call Resume to re-enable it.
-// Safe to call after Start (issue #50, FR-211).
 func (s *Scheduler) Pause(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -297,8 +249,7 @@ func (s *Scheduler) Pause(name string) error {
 	return nil
 }
 
-// Resume re-enables a previously paused job. If the job was never paused this
-// is a no-op. Safe to call after Start (issue #50, FR-211).
+// Resume re-enables a previously paused job.
 func (s *Scheduler) Resume(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -313,9 +264,7 @@ func (s *Scheduler) Resume(name string) error {
 	return nil
 }
 
-// Remove unregisters a job at runtime. Any in-flight execution is allowed to
-// finish; future fire times are silently dropped. The job name can be
-// re-registered afterwards (issue #50, FR-211).
+// Remove unregisters a job at runtime.
 func (s *Scheduler) Remove(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -327,10 +276,7 @@ func (s *Scheduler) Remove(name string) error {
 	return nil
 }
 
-// AddDynamic registers a new job at runtime, after Start has been called. It
-// accepts the same arguments as Add and may be called concurrently with the
-// scheduler loop. The first fire time is calculated from time.Now() (issue #50,
-// FR-211).
+// AddDynamic registers a new job at runtime after Start has been called.
 func (s *Scheduler) AddDynamic(name, spec string, fn JobFunc, opts ...JobOption) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

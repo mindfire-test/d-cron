@@ -8,28 +8,10 @@ import (
 	"time"
 )
 
-// AuthFunc is an optional guard called before every admin request. It receives
-// the raw *http.Request and must return true to allow the request through.
-// Return false (or call http.Error inside the function) to deny access.
-// When nil is passed to AdminHandler all requests are allowed — only use nil
-// behind an already-authenticated reverse proxy (NFR-502).
+// AuthFunc is an optional guard called before every admin request.
 type AuthFunc func(r *http.Request) bool
 
-// AdminHandler returns an http.Handler that exposes a minimal management API
-// for the scheduler (issue #51, FR-605). Mount it anywhere in your application:
-//
-//	mux.Handle("/admin/dcron/", http.StripPrefix("/admin/dcron", dcron.AdminHandler(myAuth, scheduler)))
-//
-// Endpoints:
-//
-//	GET  /status                   — scheduler and job list snapshot
-//	POST /jobs/{name}/pause        — pause a running job
-//	POST /jobs/{name}/resume       — resume a paused job
-//	DELETE /jobs/{name}            — remove a job at runtime
-//
-// The API is disabled by default. The host application is responsible for
-// authentication; pass an [AuthFunc] that checks credentials, tokens, or IP
-// allowlists. Passing nil grants access to all callers.
+// AdminHandler returns an http.Handler that exposes a minimal management API for the scheduler.
 func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 	mux := http.NewServeMux()
 

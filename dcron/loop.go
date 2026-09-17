@@ -29,7 +29,6 @@ func (s *Scheduler) runLoop() {
 
 		switch {
 		case err != nil && !errors.Is(err, context.Canceled):
-
 			s.opts.logger.Error("dcron: leadership poll failed", "err", err)
 			if wasLeader {
 				s.onDemotion()
@@ -96,9 +95,7 @@ func (s *Scheduler) pruneHistory(now time.Time) {
 	}
 }
 
-// fireDue evaluates ticks on the Leader replica using the location resolved at construction (FR-206).
-// Job execution is strictly asynchronous via executor group — the clock loop never blocks
-// on long-running jobs (issue #17, NFR-106, FR-305).
+// fireDue evaluates ticks on the Leader replica using the location resolved at construction.
 func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -134,6 +131,7 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 	}
 }
 
+/* the number of the functiona*/
 func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 	started := time.Now()
 	var rowID int64
@@ -234,22 +232,14 @@ func errorString(err error) string {
 	return err.Error()
 }
 
-// DeriveIdempotencyKey returns the deterministic idempotency key issued to a
-// job firing for name in namespace at fireAt (SDS §5.4, issue #21):
-//
-//	sha256("d-cron:v1:" + namespace + ":" + jobName + ":" + fireTime.UTC().Format(RFC3339))
-//
-// Two replicas working the same fire time produce the same key, so a job can
-// deduplicate downstream effects (e.g. a payment provider's idempotency header).
+// DeriveIdempotencyKey returns the deterministic idempotency key issued to a job firing for name in namespace at fireAt.
 func DeriveIdempotencyKey(namespace, name string, fireAt time.Time) string {
 	s := "d-cron:v1:" + namespace + ":" + name + ":" + fireAt.UTC().Format(time.RFC3339)
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
 }
 
-// jitteredPoll calculates the standby polling interval with ±20% randomized jitter (issue #9, FR-103).
-// Default poll interval is 5s (±1s jitter, 4s-6s range). Each poll performs exactly 1 database
-// round-trip per replica per interval (NFR-102).
+// jitteredPoll calculates the standby polling interval with randomized jitter.
 func (s *Scheduler) jitteredPoll() time.Duration {
 	d := s.opts.pollInterval
 	if d < time.Millisecond {

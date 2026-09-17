@@ -167,51 +167,94 @@ type CronSchedule struct {
 	loc                           *time.Location
 }
 
-const searchWindowDays = 1464
-
-// Next implements Schedule by scanning field-by-field. A valid cron expression
-// always matches within a leap cycle, so the bounded window cannot overflow.
+/* Next implements Schedule by scanning field-by-field. */
 func (c CronSchedule) Next(t time.Time) time.Time {
 	if c.withSec {
 		cur := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, c.loc).Add(time.Second)
-		for i := 0; i < searchWindowDays*24*3600; i++ {
-			if c.matches(cur) {
-				return cur
+		limit := cur.AddDate(4, 0, 0)
+		for cur.Before(limit) {
+			if c.month&(1<<uint(cur.Month())) == 0 {
+				next := time.Date(cur.Year(), cur.Month()+1, 1, 0, 0, 0, 0, c.loc)
+				if !next.After(cur) {
+					cur = cur.Add(time.Second)
+				} else {
+					cur = next
+				}
+				continue
 			}
-			cur = cur.Add(time.Second)
+			if c.dom&(1<<uint(cur.Day())) == 0 || c.dow&(1<<uint(cur.Weekday())) == 0 {
+				next := time.Date(cur.Year(), cur.Month(), cur.Day()+1, 0, 0, 0, 0, c.loc)
+				if !next.After(cur) {
+					cur = cur.Add(time.Second)
+				} else {
+					cur = next
+				}
+				continue
+			}
+			if c.hour&(1<<uint(cur.Hour())) == 0 {
+				next := time.Date(cur.Year(), cur.Month(), cur.Day(), cur.Hour()+1, 0, 0, 0, c.loc)
+				if !next.After(cur) {
+					cur = cur.Add(time.Second)
+				} else {
+					cur = next
+				}
+				continue
+			}
+			if c.minute&(1<<uint(cur.Minute())) == 0 {
+				next := time.Date(cur.Year(), cur.Month(), cur.Day(), cur.Hour(), cur.Minute()+1, 0, 0, c.loc)
+				if !next.After(cur) {
+					cur = cur.Add(time.Second)
+				} else {
+					cur = next
+				}
+				continue
+			}
+			if c.sec&(1<<uint(cur.Second())) == 0 {
+				cur = cur.Add(time.Second)
+				continue
+			}
+			return cur
 		}
 		return time.Time{}
 	}
+
 	cur := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, c.loc).Add(time.Minute)
-	for i := 0; i < searchWindowDays*24*60; i++ {
-		if c.matches(cur) {
-			return cur
+	limit := cur.AddDate(4, 0, 0)
+	for cur.Before(limit) {
+		if c.month&(1<<uint(cur.Month())) == 0 {
+			next := time.Date(cur.Year(), cur.Month()+1, 1, 0, 0, 0, 0, c.loc)
+			if !next.After(cur) {
+				cur = cur.Add(time.Minute)
+			} else {
+				cur = next
+			}
+			continue
 		}
-		cur = cur.Add(time.Minute)
+		if c.dom&(1<<uint(cur.Day())) == 0 || c.dow&(1<<uint(cur.Weekday())) == 0 {
+			next := time.Date(cur.Year(), cur.Month(), cur.Day()+1, 0, 0, 0, 0, c.loc)
+			if !next.After(cur) {
+				cur = cur.Add(time.Minute)
+			} else {
+				cur = next
+			}
+			continue
+		}
+		if c.hour&(1<<uint(cur.Hour())) == 0 {
+			next := time.Date(cur.Year(), cur.Month(), cur.Day(), cur.Hour()+1, 0, 0, 0, c.loc)
+			if !next.After(cur) {
+				cur = cur.Add(time.Minute)
+			} else {
+				cur = next
+			}
+			continue
+		}
+		if c.minute&(1<<uint(cur.Minute())) == 0 {
+			cur = cur.Add(time.Minute)
+			continue
+		}
+		return cur
 	}
 	return time.Time{}
-}
-
-func (c CronSchedule) matches(t time.Time) bool {
-	if c.withSec && c.sec&(1<<uint(t.Second())) == 0 {
-		return false
-	}
-	if c.month&(1<<uint(t.Month())) == 0 {
-		return false
-	}
-	if c.dom&(1<<uint(t.Day())) == 0 {
-		return false
-	}
-	if c.dow&(1<<uint(t.Weekday())) == 0 {
-		return false
-	}
-	if c.hour&(1<<uint(t.Hour())) == 0 {
-		return false
-	}
-	if c.minute&(1<<t.Minute()) == 0 {
-		return false
-	}
-	return true
 }
 
 func parseCron(expr string, loc *time.Location) (CronSchedule, error) {

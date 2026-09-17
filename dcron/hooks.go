@@ -11,25 +11,19 @@ import (
 	"github.com/mindfire-test/d-cron/internal/executor"
 )
 
-// Hook is called on the terminal outcome of a job execution (issue #39,
-// FR-409). Hooks fire asynchronously on every completion, including success;
-// a hook returning an error is logged and discarded — it never propagates to
-// the job or the scheduling loop. Hooks must be safe for concurrent use: they
-// may fire for several jobs at once.
+// Hook is called on the terminal outcome of a job execution.
 type Hook interface {
 	// Fire receives the final Result of one logical execution.
 	Fire(ctx context.Context, res executor.Result) error
 }
 
-// HookFunc adapts a plain function to the Hook interface (issue #39).
+// HookFunc adapts a plain function to the Hook interface.
 type HookFunc func(ctx context.Context, res executor.Result) error
 
 // Fire implements Hook.
 func (f HookFunc) Fire(ctx context.Context, res executor.Result) error { return f(ctx, res) }
 
-// WithHooks registers one or more failure/success notification hooks (issue
-// #39, FR-409). Hooks are invoked asynchronously after each execution
-// completes; a hook error is logged and never fails the job.
+// WithHooks registers one or more failure/success notification hooks.
 func WithHooks(hooks ...Hook) Option {
 	return func(o *options) { o.hooks = append(o.hooks, hooks...) }
 }
@@ -40,7 +34,6 @@ func (s *Scheduler) fireHooks(res executor.Result) {
 	runCtx := s.runCtx
 	s.mu.Unlock()
 	for _, h := range hooks {
-		h := h
 		s.group.Go(runCtx, "_hook:"+res.Name, executor.Func(func(ctx context.Context) error {
 			return h.Fire(ctx, res)
 		}), executor.Retry{Attempts: 1}, s.opts.logger)
@@ -56,25 +49,15 @@ type webhookPayload struct {
 	Time       string `json:"time"`
 }
 
-// WebhookHook notifies an HTTP endpoint with a JSON POST on terminal job
-// outcome (issue #39). The request context is derived from the job's own
-// shutdown context, so it is cancelled on scheduler shutdown. Timeout bounds a
-// single HTTP round-trip; the client is reused across calls.
+// WebhookHook notifies an HTTP endpoint with a JSON POST on terminal job outcome.
 type WebhookHook struct {
-	// URL is the endpoint receiving POSTs.
-	URL string
-	// Timeout bounds a single delivery attempt. Defaults to 5s when zero.
+	URL     string
 	Timeout time.Duration
-	// Client is the HTTP client used for deliveries. Defaults to a fresh
-	// client when nil.
-	Client *http.Client
-	// Headers are added to every request, e.g. an auth bearer token.
+	Client  *http.Client
 	Headers map[string]string
 }
 
-// Fire implements Hook by POSTing the outcome as JSON (issue #39). Errors
-// from the request (including a non-2xx status) are returned so the scheduler
-// can log them; they never propagate to the job.
+// Fire implements Hook by POSTing the outcome as JSON.
 func (w *WebhookHook) Fire(ctx context.Context, res executor.Result) error {
 	timeout := w.Timeout
 	if timeout <= 0 {
