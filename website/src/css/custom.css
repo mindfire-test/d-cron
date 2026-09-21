@@ -1,0 +1,118 @@
+:root {
+  --ifm-color-primary: #4f46e5;
+  --ifm-color-primary-dark: #4338ca;
+  --ifm-color-primary-darker: #3730a3;
+  --ifm-color-primary-darkest: #312e81;
+  --ifm-color-primary-light: #6366f1;
+  --ifm-color-primary-lighter: #818cf8;
+  --ifm-color-primary-lightest: #a5b4fc;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(79, 70, 229, 0.1);
+  --ifm-background-color: #ffffff;
+  --ifm-navbar-background-color: rgba(255, 255, 255, 0.9);
+  --ifm-footer-background-color: #0f172a;
+  --ifm-footer-color: rgba(255, 255, 255, 0.6);
+  
+  /* Home page - light */
+  --dsb-hero-from: #4f46e5;
+  --dsb-hero-mid: #3730a3;
+  --dsb-hero-to: #e0e7ff;
+  --dsb-hero-glow: rgba(79, 70, 229, 0.15);
+  --dsb-hero-grid: rgba(255, 255, 255, 0.08);
+  --dsb-bg: #f8fafc;
+  --dsb-text: #0f172a;
+  --dsb-muted: rgba(15, 23, 42, 0.6);
+  --dsb-card-bg: #ffffff;
+  --dsb-card-border: rgba(15, 23, 42, 0.08);
+  --dsb-card-hover: #ffffff;
+  --dsb-shadow: rgba(79, 70, 229, 0.12);
+  --dsb-cta-bg: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 50%, #f8fafc 100%);
+  --dsb-cta-glow: rgba(79, 70, 229, 0.08);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #6366f1;
+  --ifm-color-primary-dark: #4f46e5;
+  --ifm-color-primary-darker: #4338ca;
+  --ifm-color-primary-darkest: #3730a3;
+  --ifm-color-primary-light: #818cf8;
+  --ifm-color-primary-lighter: #a5b4fc;
+  --ifm-color-primary-lightest: #c7d2fe;
+  --docusaurus-highlighted-code-line-bg: rgba(99, 102, 241, 0.25);
+  --ifm-background-color: #0b0f19;
+  --ifm-navbar-background-color: rgba(11, 15, 25, 0.9);
+  --ifm-footer-background-color: #060911;
+  --ifm-footer-color: rgba(255, 255, 255, 0.6);
+
+  /* Home page - dark */
+  --dsb-hero-from: #4f46e5;
+  --dsb-hero-mid: #3730a3;
+  --dsb-hero-to: #0b0f19;
+  --dsb-hero-glow: rgba(99, 102, 241, 0.3);
+  --dsb-hero-grid: rgba(255, 255, 255, 0.03);
+  --dsb-bg: #0b0f19;
+  --dsb-text: #ffffff;
+  --dsb-muted: rgba(255, 255, 255, 0.6);
+  --dsb-card-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.02) 100%);
+  --dsb-card-border: rgba(255, 255, 255, 0.08);
+  --dsb-card-hover: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(255, 255, 255, 0.02) 100%);
+  --dsb-shadow: rgba(0, 0, 0, 0.4);
+  --dsb-cta-bg: linear-gradient(135deg, #0b0f19 0%, #171e38 50%, #0b0f19 100%);
+  --dsb-cta-glow: rgba(99, 102, 241, 0.12);
+}
+
+.footer--dark {
+  --ifm-footer-background-color: #060911;
+  --ifm-footer-color: rgba(255, 255, 255, 0.6);
+}
+
+.footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 2rem 0;
+}
+
+.header-github-link::before {
+  content: '';
+  width: 24px;
+  height: 24px;
+  display: flex;
+  background-color: var(--ifm-navbar-link-color);
+  mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12'/%3E%3C/svg%3E");
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  transition: background-color 0.2s ease;
+}
+
+.header-github-link:hover::before {
+  background-color: var(--ifm-color-primary);
+}
+
+.navbar {
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.navbar__title {
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: -0.01em;
+}
+
+.navbar__logo img {
+  border-radius: 6px;
+}
+
+.theme-code-block-highlighted-line {
+  background-color: rgba(99, 102, 241, 0.12);
+}
+
+table {
+  font-size: 0.875rem;
+}
+
+thead {
+  background-color: rgba(99, 102, 241, 0.06);
+}
