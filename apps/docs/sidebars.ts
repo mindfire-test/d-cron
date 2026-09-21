@@ -10,6 +10,8 @@ const sidebars: SidebarsConfig = {
         'intro',
         'quickstart',
         'installation',
+        'cron-expressions',
+        'cli-commands',
       ],
     },
     {
@@ -56,7 +58,16 @@ const sidebars: SidebarsConfig = {
         'api/metrics',
       ],
     },
-    'faq',
+    {
+      type: 'category',
+      label: 'Help & Community',
+      collapsed: false,
+      items: [
+        'troubleshooting',
+        'contributing',
+        'faq',
+      ],
+    },
   ],
 };
 

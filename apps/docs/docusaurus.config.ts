@@ -40,6 +40,19 @@ const config: Config = {
     ],
   ],
 
+  themes: [
+    [
+      require.resolve('@easyops-cn/docusaurus-search-local'),
+      {
+        hashed: true,
+        language: ['en'],
+        highlightSearchTermsOnTargetPage: true,
+        explicitSearchResultPath: true,
+        docsRouteBasePath: '/docs',
+      },
+    ],
+  ],
+
   themeConfig: {
     image: 'img/docusaurus-social-card.jpg',
     colorMode: {
@@ -77,6 +90,10 @@ const config: Config = {
           to: '/docs/faq',
           label: 'FAQ & Comparison',
           position: 'left',
+        },
+        {
+          type: 'docsVersionDropdown',
+          position: 'right',
         },
         {
           href: 'https://github.com/mindfire-test/d-cron',
@@ -136,6 +153,10 @@ const config: Config = {
             {
               label: 'GitHub Repository',
               href: 'https://github.com/mindfire-test/d-cron',
+            },
+            {
+              label: 'Contributor Guide',
+              to: '/docs/contributing',
             },
             {
               label: 'Mindfire Digital',
