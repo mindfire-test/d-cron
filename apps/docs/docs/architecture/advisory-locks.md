@@ -50,11 +50,15 @@ Session-bound advisory locks are attached to the **underlying TCP connection ses
 `d-cron` derives a deterministic 64-bit advisory lock key from your configured namespace string (e.g. `myapp-scheduler`):
 
 ```go
-// Internal lock key calculation in d-cron
-func DeriveLockKey(namespace string) int64 {
-    hasher := fnv.New64a()
-    hasher.Write([]byte(namespace))
-    return int64(hasher.Sum64())
+// LockKey derives the deterministic 64-bit advisory-lock key from namespace:
+// key = int64 from the first 8 bytes of sha256("d-cron:v1:" + namespace)
+func LockKey(namespace string) int64 {
+    h := sha256.Sum256([]byte("d-cron:v1:" + namespace))
+    k := int64(binary.BigEndian.Uint64(h[:8]))
+    if k == 0 {
+        return 1
+    }
+    return k
 }
 ```
 
