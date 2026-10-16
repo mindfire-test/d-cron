@@ -1,9 +1,4 @@
-// Package executor runs jobs with panic recovery, timeout, retry, overlap
-// control, and bounded drain.
-//
-// A job function is a plain func(context.Context) error; the executor never
-// inspects its payload or serialisation (see the SDS). See SDS §5 and §7 for
-// the execution and failure-handling semantics.
+// Package executor runs jobs with panic recovery, timeout, retry, and bounded drain.
 package executor
 
 import (
@@ -23,11 +18,7 @@ type Outcome uint8
 const (
 	OutcomeUnknown Outcome = iota
 	OutcomeOK
-	// OutcomeFailed is a non-retryable error, or the last error once the
-	// retry policy was exhausted.
 	OutcomeFailed
-	// OutcomePanicked is a recovered panic. Panics are never retried: they
-	// almost always indicate a programming bug, and retrying can mask it.
 	OutcomePanicked
 	OutcomeTimedOut
 	OutcomeCanceled
@@ -53,23 +44,13 @@ func (o Outcome) String() string {
 
 // Retry configures how Run retries a job after failures.
 type Retry struct {
-	// Attempts is the total number of runs (>=1). 1 disables retry.
-	Attempts int
-	// Backoff is the delay after the first failure before the first retry.
-	Backoff time.Duration
-	// Factor multiplies the backoff between retries. Values >1 yield
-	// exponential backoff; 1 (the default) is constant backoff.
-	Factor float64
-	// MaxBackoff caps the backoff. 0 = unlimited.
+	Attempts   int
+	Backoff    time.Duration
+	Factor     float64
 	MaxBackoff time.Duration
-	// Jitter adds up to +/-25% jitter to each backoff to avoid thundering
-	// herds across replicas.
-	Jitter bool
-	// Timeout is the per-attempt deadline. 0 = inherit the caller's context.
-	Timeout time.Duration
-	// Retryable reports whether a returned error is worth retrying. By
-	// default every error is retried (subject to Attempts).
-	Retryable func(error) bool
+	Jitter     bool
+	Timeout    time.Duration
+	Retryable  func(error) bool
 }
 
 func (r Retry) withDefaults() Retry {
@@ -95,9 +76,7 @@ func (r Retry) withDefaults() Retry {
 	return r
 }
 
-// Delay returns the delay to wait before the next retry (issue #20, FR-306).
-// Applies exponential backoff (base * 2^attempt), max attempt cap (default 5), max backoff cap (default 5m),
-// and +/-25% randomized jitter to prevent thundering herds across replicas.
+// Delay returns the delay to wait before the next retry.
 func (r Retry) Delay(attempt int) time.Duration {
 	d := r.Backoff
 	if r.Factor > 1 {
@@ -117,36 +96,21 @@ func (r Retry) Delay(attempt int) time.Duration {
 
 // Result is the outcome of a logical execution.
 type Result struct {
-	// Name is the job name passed to Run (issue #36).
-	Name string
-	// Outcome classifies the terminal state after all retries.
-	Outcome Outcome
-	// Error is the terminal error (nil on success). It may be a *PanicError
-	// or *TimeoutError carrying the job name (issue #26).
-	Error error
-	// Attempts is the total number of run attempts made (>= 1).
+	Name     string
+	Outcome  Outcome
+	Error    error
 	Attempts int
-	// Duration is the wall-clock time from the first attempt start to completion
-	// of the logical execution, including inter-attempt backoff. It is the value
-	// surfaced to metrics and dashboards (issue #36).
 	Duration time.Duration
 }
 
-// PanicError is the typed result of a recovered panic. It carries the panic
-// value and the full goroutine stack captured inside the deferred recovery, so
-// a panicking job never crashes the host process and the stack is not lost
-// (SDS §5.1, issue #18). The limitation — a panic on a goroutine the job
-// itself spawned cannot be recovered — is documented on the Run function.
+// PanicError is the typed result of a recovered panic.
 type PanicError struct {
-	// Job is the name of the scheduled job that panicked, or "" when Run was
-	// invoked without a name (issue #26).
 	Job   string
 	Value any
 	Stack []byte
 }
 
-// Error implements error. The job name is included so an operator can jump
-// straight to the culprit without cross-referencing log lines (issue #26).
+// Error implements error.
 func (e *PanicError) Error() string {
 	if e.Job != "" {
 		return fmt.Sprintf("executor: recovered panic in job %q: %v", e.Job, e.Value)
@@ -157,15 +121,13 @@ func (e *PanicError) Error() string {
 // StackTrace returns the goroutine stack captured at panic time.
 func (e *PanicError) StackTrace() []byte { return e.Stack }
 
-// TimeoutError is the typed result of a job that exceeded its per-attempt
-// deadline (SDS §5.2, issue #19/#26). It wraps context.DeadlineExceeded so it
-// remains errors.Is-friendly, and carries the job name for diagnostics.
+// TimeoutError is the typed result of a job that exceeded its deadline.
 type TimeoutError struct {
 	Job string
 	Err error
 }
 
-// Error implements error, naming the affected job when available (issue #26).
+// Error implements error.
 func (e *TimeoutError) Error() string {
 	if e.Job != "" {
 		return fmt.Sprintf("executor: job %q timed out: %v", e.Job, e.Err)
@@ -173,5 +135,5 @@ func (e *TimeoutError) Error() string {
 	return fmt.Sprintf("executor: timed out: %v", e.Err)
 }
 
-// Unwrap lets callers errors.Is/As the underlying cause (issue #26).
+// Unwrap lets callers unwrap the underlying cause.
 func (e *TimeoutError) Unwrap() error { return e.Err }

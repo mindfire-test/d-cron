@@ -101,18 +101,13 @@ func WithLogger(l *slog.Logger) Option {
 
 // WithSessionStableConnection asserts that the connection(s) supplied to New
 // are session-stable (a direct Postgres connection or a session-mode pooler).
-// d-cron refuses to start unless this or WithDedicatedLockConn/WithDedicatedLockDSN
-// is set: a transaction-mode pooler silently corrupts advisory-lock semantics,
-// producing two simultaneous leaders and an orphaned lock (SDS §3.4, issue #12).
 func WithSessionStableConnection() Option {
 	return func(o *options) {
 		o.sessionStable = true
 	}
 }
 
-// WithMetrics supplies the recorder that receives scheduler and job
-// observability signals (issue #36, FR-404). The default is a Noop that
-// discards everything, so applications that do not use metrics pay nothing.
+// WithMetrics supplies the recorder that receives scheduler and job observability signals.
 func WithMetrics(rec metrics.Recorder) Option {
 	return func(o *options) {
 		if rec != nil {
@@ -121,11 +116,7 @@ func WithMetrics(rec metrics.Recorder) Option {
 	}
 }
 
-// WithHistory enables durable execution history (SDS §10, issues #34/#35).
-// This is OPT-IN: unless called, d-cron creates no tables and no schema, and
-// the "zero migrations" Phase-1 guarantee holds. With a positive retention,
-// finished executions older than retention are pruned on the leader as an
-// internal job. A retention of 0 keeps history indefinitely.
+// WithHistory enables durable execution history.
 func WithHistory(retention time.Duration) Option {
 	return func(o *options) {
 		o.history = true
@@ -133,9 +124,7 @@ func WithHistory(retention time.Duration) Option {
 	}
 }
 
-// WithSchema sets the database schema used for the opt-in history tables
-// (issue #34). The default is "dcron"; the schema is never "public". The value
-// must be a lowercase SQL identifier; anything else fails at construction.
+// WithSchema sets the database schema used for history tables.
 func WithSchema(schema string) Option {
 	return func(o *options) {
 		if schema != "" {
@@ -144,32 +133,19 @@ func WithSchema(schema string) Option {
 	}
 }
 
-// WithDedicatedLockConn supplies a function that opens a dedicated, direct
-// connection used exclusively for the advisory lock, bypassing the caller's
-// pool and any pooler (the SDS's WithDedicatedLockDSN, expressed
-// driver-agnostically). It satisfies the session-stability gate: the operator
-// asserts the connection bypasses any pooler, so neither session-stability nor
-// pool-capacity checks apply.
+// WithDedicatedLockConn supplies a function that opens a dedicated connection for the lock.
 func WithDedicatedLockConn(open func(ctx context.Context) (*sql.Conn, error)) Option {
 	return func(o *options) {
 		o.lockConn = open
 	}
 }
 
-// WithDedicatedLockDSN tells d-cron to open and own exactly one direct
-// connection to dsn, used exclusively for the advisory lock (SDS §3.4, issue
-// #12). It satisfies the session-stability gate. A Postgres driver must be
-// registered under the name "postgres" (lib/pq or pgx/stdlib); the dedicated
-// connection therefore bypasses any pooler the application uses.
+// WithDedicatedLockDSN configures d-cron to open a dedicated connection to dsn for the lock.
 func WithDedicatedLockDSN(dsn string) Option {
 	return WithDedicatedLockDriver("postgres", dsn)
 }
 
-// WithDedicatedLockDriver is WithDedicatedLockDSN for drivers registered
-// under a different name — e.g. pgx via `_ "github.com/jackc/pgx/v5/stdlib"`
-// which registers "pgx" (issue #24). The application imports the driver, so
-// the core stays dependency-free (NFR-401); the dedicated connection still
-// bypasses any pooler and satisfies the session-stability gate.
+// WithDedicatedLockDriver is WithDedicatedLockDSN for custom registered driver names.
 func WithDedicatedLockDriver(driverName, dsn string) Option {
 	return func(o *options) {
 		o.lockConn = func(ctx context.Context) (*sql.Conn, error) {
@@ -182,11 +158,7 @@ func WithDedicatedLockDriver(driverName, dsn string) Option {
 	}
 }
 
-// WithSecondsField enables 6-field cron schedules (second minute hour
-// day-of-month month day-of-week), parsed by clock.ParseSeconds, so a job can
-// fire on a sub-minute cadence. It is accepted for compatibility only when
-// paired with a driver that supports it; by default schedules are 5-field. See
-// issue #15 / FR-212.
+// WithSecondsField enables 6-field cron schedules.
 func WithSecondsField() Option {
 	return func(o *options) {
 		o.secondsField = true

@@ -72,15 +72,6 @@ func (e *SingleConnectionPoolError) Is(target error) bool {
 }
 
 // LockKey derives the advisory-lock key for namespace.
-//
-// The key is the first 8 bytes of sha256("d-cron:v1:" + namespace) interpreted
-// as a big-endian int64, per SDS §3.2 / issue #6, so every replica in a
-// namespace contends on the same lock. Two applications sharing a database
-// MUST use distinct namespaces — they would otherwise fight over one lock and
-// one would never schedule anything (SDS §12 row 10).
-//
-// The result is never zero: pg_try_advisory_lock treats key 0 as "no lock"
-// (it never blocks), so a zero hash is folded onto 1.
 func LockKey(namespace string) int64 {
 	h := sha256.Sum256([]byte("d-cron:v1:" + namespace))
 	k := int64(binary.BigEndian.Uint64(h[:8]))
@@ -90,9 +81,7 @@ func LockKey(namespace string) int64 {
 	return k
 }
 
-// Transition is a state change emitted by the elector so the scheduler (and
-// structured logs) can react without re-deriving state from Acquire's returns
-// (SDS §3.5). It is delivered on the channel returned by Subscribe.
+// Transition is a state change emitted by the elector.
 type Transition struct {
 	From, To State
 	Epoch    int64
@@ -100,8 +89,6 @@ type Transition struct {
 }
 
 // Elector owns the advisory lock for one namespace on one dedicated backend.
-// All fields are guarded by mu except backend, which is set once at
-// construction and only read thereafter.
 type Elector struct {
 	backend  Backend
 	key      int64
@@ -116,8 +103,7 @@ type Elector struct {
 	subs  []chan<- Transition
 }
 
-// New returns an Elector over backend for namespace. instance is a host-unique
-// id recorded in transition logs. log defaults to slog.Default() when nil.
+// New returns an Elector over backend for namespace.
 func New(namespace, instance string, backend Backend, log *slog.Logger) *Elector {
 	if log == nil {
 		log = slog.Default()
@@ -132,9 +118,7 @@ func New(namespace, instance string, backend Backend, log *slog.Logger) *Elector
 	}
 }
 
-// Subscribe returns a channel that receives every state transition while it is
-// being drained; late subscribers may miss early transitions, which is
-// acceptable (State() is the source of truth).
+// Subscribe returns a channel that receives state transitions.
 func (e *Elector) Subscribe() <-chan Transition {
 	sub := make(chan Transition, 16)
 	e.mu.Lock()
@@ -159,18 +143,17 @@ func (e *Elector) State() State {
 // IsLeader reports whether the elector currently holds leadership.
 func (e *Elector) IsLeader() bool { return e.State() == StateLeader }
 
-// IsDemoting reports whether the elector is in the transient
-// leader-on-the-way-down state, draining or aborting in-flight work.
+// IsDemoting reports whether the elector is in the demoting state.
 func (e *Elector) IsDemoting() bool { return e.State() == StateDemoting }
 
-// PID returns the backend pid of the most recent (or current) lock holder.
+// PID returns the backend pid of the most recent lock holder.
 func (e *Elector) PID() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.pid
 }
 
-// Epoch returns the current leader epoch (fencing token).
+// Epoch returns the current leader epoch.
 func (e *Elector) Epoch() int64 {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -187,14 +170,7 @@ func (e *Elector) emit(from, to State, reason string) {
 	}
 }
 
-// Acquire is the leadership-polling step (SDS §3.5, issue #8). On a standby/unknown it
-// attempts to win the lock with pg_try_advisory_lock (never the blocking form);
-// on a leader it re-confirms ownership with a read-only pg_locks probe and never
-// re-acquires — advisory locks are re-entrant, so re-try_locking would mask a
-// lost lock and break the single explicit unlock on shutdown (C-07). err is
-// surfaced to the caller so a transient database failure is logged and retried
-// rather than crashing the host (NFR-202). Demotes to DEMOTING within 1 poll interval
-// if lock is lost or DB is unavailable (FR-105).
+// Acquire performs the leadership-polling step.
 func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

@@ -9,37 +9,23 @@ import (
 	"github.com/mindfire-test/d-cron/internal/executor"
 )
 
-// JobFunc is the signature of a job's execution function. It receives only a
-// context and returns only an error, which keeps the scheduler free of
-// payloads and serialisation (see the SDS).
+// JobFunc is the signature of a job's execution function.
 type JobFunc func(ctx context.Context) error
 
 // Job is a registered, schedulable unit of work.
-//
-// Jobs are created through (Scheduler).Add and are not intended to be
-// constructed directly. All fields are internal; callers only need the job
-// name to reason about a registration.
-// OverlapPolicy governs behaviour when a fire time is reached while a previous
-// run of the same job is still active (SDS §7.2, issue #44, FR-308).
 type OverlapPolicy int
 
 const (
-	// OverlapSkip skips the new fire time (default per SRS FR-308).
 	OverlapSkip OverlapPolicy = iota
-	// OverlapQueue queues a single run to execute after the current run finishes.
 	OverlapQueue
-	// OverlapAllow permits concurrent executions of the same job.
 	OverlapAllow
 )
 
-// MissedRunPolicy governs behaviour when scheduled fire times were missed
-// (e.g. during an outage or failover) (SDS §7.3, issue #45, FR-312).
+// MissedRunPolicy governs behaviour when scheduled fire times were missed.
 type MissedRunPolicy int
 
 const (
-	// MissedSkip skips missed fire times (default per SRS FR-312).
 	MissedSkip MissedRunPolicy = iota
-	// MissedCatchUp dispatches missed fire times within a lookback window up to a cap.
 	MissedCatchUp
 )
 
@@ -73,38 +59,22 @@ func (j *Job) Name() string { return j.name }
 // JobOption configures an individual job at registration time.
 type JobOption func(*Job)
 
-// Retry configures how a job is retried after failure (SDS §5.3, issue #20).
-// Zero fields fall back to the documented defaults: 5 attempts, a 1s base
-// backoff doubling up to a 5-minute cap, jitter enabled, and a 30-minute
-// per-attempt timeout. Retries are in-memory and are lost on process restart;
-// they abort immediately if leadership is lost mid-sequence (FR-307).
+// Retry configures how a job is retried after failure.
 type Retry struct {
-	// Attempts is the total number of runs (>=1). 1 disables retry.
-	Attempts int
-	// Backoff is the delay after the first failure before the first retry.
-	Backoff time.Duration
-	// Factor multiplies the backoff between retries; 2 is the default.
-	Factor float64
-	// MaxBackoff caps the backoff.
+	Attempts   int
+	Backoff    time.Duration
+	Factor     float64
 	MaxBackoff time.Duration
-	// Jitter adds up to ±25% jitter to each backoff to avoid thundering
-	// herds across replicas. Defaults to true.
-	Jitter bool
-	// Timeout bounds a single execution attempt (SDS §5.2). The deadline is
-	// honoured by cancelling the job's context; a job that ignores its context
-	// runs on. Defaults to 30 minutes.
-	Timeout time.Duration
+	Jitter     bool
+	Timeout    time.Duration
 }
 
-// WithTimeout bounds a single execution of the job. The deadline is honoured
-// by cancelling the job's context; a job that ignores its context runs on.
-// The default is 30 minutes (SDS §5.2, issue #19).
+// WithTimeout bounds a single execution of the job.
 func WithTimeout(d time.Duration) JobOption {
 	return func(j *Job) { j.retry.Timeout = d }
 }
 
-// WithRetry overrides the default retry behaviour for a job (SDS §5.3, issue
-// #20). Zero fields fall back to the defaults documented on Retry.
+// WithRetry overrides the default retry behaviour for a job.
 func WithRetry(r Retry) JobOption {
 	return func(j *Job) {
 		j.retry = executor.Retry{
@@ -118,8 +88,7 @@ func WithRetry(r Retry) JobOption {
 	}
 }
 
-// WithNoOverlap suppresses firing a job while its previous run is still
-// active. Same as WithOverlapPolicy(OverlapSkip).
+// WithNoOverlap suppresses firing a job while its previous run is still active.
 func WithNoOverlap() JobOption {
 	return func(j *Job) {
 		j.overlapPolicy = OverlapSkip
@@ -127,8 +96,7 @@ func WithNoOverlap() JobOption {
 	}
 }
 
-// WithOverlapPolicy sets the overlap policy for a job (SDS §7.2, issue #44, FR-308).
-// Options are OverlapSkip (default), OverlapQueue, and OverlapAllow.
+// WithOverlapPolicy sets the overlap policy for a job.
 func WithOverlapPolicy(p OverlapPolicy) JobOption {
 	return func(j *Job) {
 		j.overlapPolicy = p
@@ -136,8 +104,7 @@ func WithOverlapPolicy(p OverlapPolicy) JobOption {
 	}
 }
 
-// WithMissedRunPolicy sets the missed-run policy for a job (SDS §7.3, issue #45, FR-312).
-// Options are MissedSkip (default) and MissedCatchUp.
+// WithMissedRunPolicy sets the missed-run policy for a job.
 func WithMissedRunPolicy(p MissedRunPolicy) JobOption {
 	return func(j *Job) { j.missedPolicy = p }
 }
@@ -152,8 +119,7 @@ func WithMaxCatchUpRuns(maxRuns int) JobOption {
 	return func(j *Job) { j.maxCatchUp = maxRuns }
 }
 
-// WithSinceLastSuccess schedules the next fire time relative to the completion
-// of the last successful execution (issue #46, FR-210). Requires history store.
+// WithSinceLastSuccess schedules the next fire time relative to the completion of the last successful execution.
 func WithSinceLastSuccess(d time.Duration) JobOption {
 	return func(j *Job) {
 		j.sched = clock.SinceSuccessSchedule{Interval: d}

@@ -12,12 +12,12 @@ type (
 	idempotencyKey struct{}
 )
 
-// WithNamespaceKey returns a copy of ctx carrying the namespace name.
+/* WithNamespaceKey returns a copy of ctx carrying the namespace name. */
 func WithNamespaceKey(ctx context.Context, namespace string) context.Context {
 	return context.WithValue(ctx, namespaceKey{}, namespace)
 }
 
-// NamespaceKey returns the namespace carried by ctx, or "default" if none was set.
+/* NamespaceKey returns the namespace carried by ctx, or "default" if none was set. */
 func NamespaceKey(ctx context.Context) string {
 	if v, ok := ctx.Value(namespaceKey{}).(string); ok && v != "" {
 		return v
@@ -25,50 +25,39 @@ func NamespaceKey(ctx context.Context) string {
 	return "default"
 }
 
-// WithEpoch returns a copy of ctx carrying the given leader epoch (fencing
-// token).
+/* WithEpoch returns a copy of ctx carrying the given leader epoch. */
 func WithEpoch(ctx context.Context, epoch int64) context.Context {
 	return context.WithValue(ctx, epochKey{}, epoch)
 }
 
-// Epoch returns the leader epoch (fencing token) carried by ctx, or 0 if none
-// was set.
+/* Epoch returns the leader epoch carried by ctx, or 0 if none was set. */
 func Epoch(ctx context.Context) int64 {
 	v, _ := ctx.Value(epochKey{}).(int64)
-
 	return v
 }
 
-// WithIdempotencyKey returns a copy of ctx carrying the given idempotency key.
+/* WithIdempotencyKey returns a copy of ctx carrying the given idempotency key. */
 func WithIdempotencyKey(ctx context.Context, key string) context.Context {
 	return context.WithValue(ctx, idempotencyKey{}, key)
 }
 
-// IdempotencyKey returns the idempotency key carried by ctx, or "" if none
-// was set.
+/* IdempotencyKey returns the idempotency key carried by ctx, or "" if none was set. */
 func IdempotencyKey(ctx context.Context) string {
 	v, _ := ctx.Value(idempotencyKey{}).(string)
-
 	return v
 }
 
-// Querier is an interface satisfied by *sql.DB, *sql.Conn, and *sql.Tx (NFR-403).
+/* Querier is an interface satisfied by *sql.DB, *sql.Conn, and *sql.Tx. */
 type Querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// Fence guards application code writes inside user transactions against stale
-// leader executions (issue #43, FR-311). It executes:
-//
-//	SELECT epoch FROM dcron.leader_epoch WHERE namespace = $1 FOR SHARE
-//
-// using FOR SHARE lock mode to prevent TOCTOU race conditions. It returns an
-// error if the current database leader epoch does not match Epoch(ctx).
+/* Fence guards application code writes inside user transactions against stale leader executions. */
 func Fence(ctx context.Context, tx Querier) error {
 	return FenceSchema(ctx, tx, "dcron")
 }
 
-// FenceSchema behaves as Fence but allows specifying a custom schema name.
+/* FenceSchema behaves as Fence but allows specifying a custom schema name. */
 func FenceSchema(ctx context.Context, tx Querier, schema string) error {
 	epoch := Epoch(ctx)
 	if epoch == 0 {

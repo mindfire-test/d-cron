@@ -8,22 +8,12 @@ import (
 	"github.com/mindfire-test/d-cron/internal/elector"
 )
 
-// LeadershipState is a three-valued enum describing this replica's position in
-// leader election (SDS §3.5, issue #37/FR-109). A bool would collapse "not
-// leader" and "don't know" — exactly the distinction a Kubernetes readiness probe
-// needs: a replica that doesn't know whether it's leader must not receive
-// traffic for leadership-sensitive endpoints.
+// LeadershipState describes this replica's position in leader election.
 type LeadershipState int
 
 const (
-	// LeadershipUnknown is the zero value: before the first poll, or after a
-	// transient error left the state uncertain.
 	LeadershipUnknown LeadershipState = iota
-	// LeadershipStandby means this replica is not the leader and is polling
-	// for promotion, or was recently demoting.
 	LeadershipStandby
-	// LeadershipLeader means this replica holds the advisory lock and is
-	// running the schedule clock.
 	LeadershipLeader
 )
 
@@ -39,8 +29,7 @@ func (l LeadershipState) String() string {
 	}
 }
 
-// Leadership reports the current membership state of this replica (issue #37,
-// FR-109). Unlike a bool, it distinguishes "not leader" from "don't know".
+// Leadership reports the current membership state of this replica.
 func (s *Scheduler) Leadership() LeadershipState {
 	switch s.leader.State() {
 	case elector.StateLeader:
@@ -52,9 +41,7 @@ func (s *Scheduler) Leadership() LeadershipState {
 	}
 }
 
-// HealthCheck reports whether the coordination backend is reachable. It is
-// suitable for use as a Kubernetes liveness/readiness probe (issue #37,
-// FR-411). A nil error means the backend responded to a ping.
+// HealthCheck reports whether the coordination backend is reachable.
 func (s *Scheduler) HealthCheck(ctx context.Context) error {
 	if s.db == nil {
 		return nil
@@ -65,16 +52,12 @@ func (s *Scheduler) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// JobStatus captures the observable state of one registered job for the
-// dashboard and metrics (issue #37/FR-406). Fields are a point-in-time
-// snapshot; call Jobs() repeatedly for live updates.
+// JobStatus captures the observable state of one registered job.
 type JobStatus struct {
-	Name    string
-	Spec    string
-	NextRun time.Time
-	LastRun time.Time
-	// LastOutcome is the outcome label of the most recent execution
-	// ("ok", "failed", "panicked", "timed_out", "canceled", "unknown").
+	Name         string
+	Spec         string
+	NextRun      time.Time
+	LastRun      time.Time
 	LastOutcome  string
 	LastError    string
 	LastDuration time.Duration
@@ -82,8 +65,7 @@ type JobStatus struct {
 	Paused       bool
 }
 
-// Jobs returns a point-in-time snapshot of every registered job's status
-// (issue #37, FR-406). The returned slice is safe to read and mutate.
+// Jobs returns a point-in-time snapshot of every registered job's status.
 func (s *Scheduler) Jobs() []JobStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
