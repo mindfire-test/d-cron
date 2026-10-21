@@ -5,17 +5,12 @@ const sidebars: SidebarsConfig = {
     {
       type: 'doc',
       id: 'intro',
-      label: 'Overview',
+      label: 'Getting Started',
     },
     {
       type: 'doc',
-      id: 'installation',
-      label: 'Installation',
-    },
-    {
-      type: 'doc',
-      id: 'quickstart',
-      label: 'Quickstart',
+      id: 'usage-guide',
+      label: 'Usage Guide',
     },
     {
       type: 'category',

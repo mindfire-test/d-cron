@@ -70,7 +70,7 @@ This page provides solutions for common issues encountered when integrating or d
 
 If you are still experiencing issues:
 
-1. Check the [Quickstart Guide](./quickstart.md) for basic integration examples
+1. Check the [Getting Started Guide](./intro.md) for basic integration examples
 2. Enable structured debug logging: pass `dcron.WithLogger(slog.Default())` to `dcron.New`
 3. Inspect Prometheus metrics: observe `dcron_leadership_status`, `dcron_leader_transitions_total`, and `dcron_job_executions_total`
 4. Check the [GitHub Issues](https://github.com/mindfire-test/d-cron/issues) for similar problems
