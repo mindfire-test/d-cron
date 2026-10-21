@@ -1,10 +1,10 @@
 ---
 id: quickstart
-title: Usage Guide
-sidebar_label: Usage Guide
+title: Quickstart
+sidebar_label: Quickstart
 ---
 
-# Usage Guide & Quickstart
+# Quickstart
 
 This guide demonstrates how to install `d-cron`, integrate it into a Go application with PostgreSQL, and configure cron schedules.
 

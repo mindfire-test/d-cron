@@ -15,7 +15,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'doc',
       id: 'quickstart',
-      label: 'Usage Guide',
+      label: 'Quickstart',
     },
     {
       type: 'category',
@@ -58,12 +58,12 @@ const sidebars: SidebarsConfig = {
           id: 'guides/observability',
           label: 'Observability & Dashboard',
         },
+        {
+          type: 'doc',
+          id: 'production/kubernetes',
+          label: 'Production & Kubernetes',
+        },
       ],
-    },
-    {
-      type: 'doc',
-      id: 'production/kubernetes',
-      label: 'Production & Kubernetes',
     },
     {
       type: 'doc',
@@ -73,7 +73,12 @@ const sidebars: SidebarsConfig = {
     {
       type: 'doc',
       id: 'troubleshooting',
-      label: 'Troubleshooting & FAQ',
+      label: 'Troubleshooting',
+    },
+    {
+      type: 'doc',
+      id: 'security',
+      label: 'Security',
     },
     {
       type: 'doc',

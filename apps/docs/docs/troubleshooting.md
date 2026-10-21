@@ -1,115 +1,76 @@
 ---
 id: troubleshooting
-title: Troubleshooting & FAQ
-sidebar_label: Troubleshooting & FAQ
+title: Troubleshooting
+sidebar_label: Troubleshooting
 ---
 
-# Troubleshooting Guide & FAQ
+# Troubleshooting
 
-This guide helps diagnose and resolve common issues encountered when integrating or deploying `d-cron`, and answers frequently asked questions.
-
----
-
-## Common Issues & Resolutions
-
-### 1. Lock Contention / Advisory Lock Dropping in PgBouncer
-
-**Symptom:**
-Nodes repeatedly cycle leadership status, emitting log messages like:
-`[WARN] Lost session advisory lock connection. Demoting to standby...`
-
-**Cause:**
-PgBouncer is operating in **Transaction Pooling Mode** (`pool_mode = transaction`). In transaction pooling mode, PostgreSQL connections are recycled after every transaction, causing session-bound advisory locks (`pg_try_advisory_lock`) to drop.
-
-**Resolution:**
-- Use a direct PostgreSQL connection (`dcron.WithDedicatedLockDSN`) for `d-cron`'s leader lock handle.
-- Or configure a dedicated PgBouncer database alias with `pool_mode = session`.
-- See the [Production & Kubernetes Guide](./production/kubernetes.md#3-pgbouncer-and-connection-pooling) for step-by-step instructions.
+This page provides solutions for common issues encountered when integrating or deploying `d-cron`.
 
 ---
 
-### 2. Jobs Running Concurrently on Multiple Pods (Duplicate Executions)
+## Leadership and Locking Issues
 
-**Symptom:**
-The same scheduled job executes simultaneously on two different pod replicas.
+### Problem: Leadership repeatedly cycling or dropping unexpectedly
 
-**Cause:**
-Different application pod replicas are configured with different namespace strings (e.g., Replica 1 uses `"service-a"` while Replica 2 uses `"service-b"`). Because namespace strings determine the 64-bit advisory lock key, different strings result in separate lock keys and multiple active leaders.
+**Solutions:**
 
-**Resolution:**
-Ensure all replicas of the same microservice share the exact same namespace string:
-```go
-// Both pods must use the exact same namespace string!
-scheduler, err := dcron.New(db, dcron.WithNamespace("orders-service"))
-```
+- **Verify connection pooler mode**: If you are using PgBouncer, ensure it is not operating in transaction mode for `d-cron`. Use a direct PostgreSQL connection for the lock via `dcron.WithDedicatedLockDSN("postgres://...")` or configure a dedicated PgBouncer database alias in session mode. See the [Production Guide](./production/kubernetes.md#3-pgbouncer-and-connection-pooling).
+- **Prevent connection recycling**: If passing a shared `*sql.DB` connection pool, ensure `db.SetConnMaxLifetime(0)` is set on the lock connection handle so Go's connection pool does not close the session periodically.
+- **Check TCP keepalive settings**: Ensure PostgreSQL connection keepalives (`keepalives=1&keepalives_idle=10&keepalives_interval=3&keepalives_count=3`) are configured in the DSN to detect dropped connections quickly.
 
----
+### Problem: Jobs executing simultaneously on multiple pods (Duplicate runs)
 
-### 3. Fencing Token Errors (`stale leader epoch`)
+**Solutions:**
 
-**Symptom:**
-Database write fails with error: `fencing error: epoch X is stale`.
-
-**Cause:**
-A node experienced a long GC pause or network partition. During the delay, PostgreSQL dropped its lock session, a new leader promoted with a higher epoch (e.g., Epoch 5), and the old node resumed processing with an older token (Epoch 4).
-
-**Resolution:**
-This is **intended safety behavior!** The fencing mechanism successfully prevented a duplicate database write from a stale leader. The job handler should abort cleanly when encountering fencing errors.
+- **Check namespace configuration**: All replicas of the same service must share the exact same namespace string. `d-cron` derives the 64-bit advisory lock key from `dcron.WithNamespace("service-name")`. If pod A uses `"service-a"` and pod B uses `"service-b"`, both will elect themselves leader.
+- **Verify single database instance**: Ensure all replicas connect to the same PostgreSQL primary database. If replicas connect to different read replicas or partitioned databases, each will acquire the advisory lock independently.
 
 ---
 
-### 4. High Lock Polling Spikes
+## Fencing and Concurrency Issues
 
-**Symptom:**
-PostgreSQL CPU utilization shows spikes during standby polling checks.
+### Problem: Fencing rejection error ("fencing error: epoch X is stale")
 
-**Cause:**
-`WithPollInterval` is set to an excessively aggressive value (e.g. `10ms`).
+**Solutions:**
 
-**Resolution:**
-Set `WithPollInterval` to a production-appropriate interval such as `3s` or `5s`:
-```go
-scheduler, err := dcron.New(db, dcron.WithPollInterval(3 * time.Second))
-```
+- **Recognize intended safety behavior**: This error indicates that a long GC pause, process freeze, or network partition occurred. PostgreSQL dropped the session lock, promoted another standby replica to a higher epoch, and the demoted replica attempted to execute a database write. The fencing mechanism successfully prevented data corruption.
+- **Abort stale handlers**: Handle `dcron.Fence(ctx, tx)` errors by rolling back the transaction and aborting the handler cleanly.
+- **Tune drain timeouts**: Ensure `dcron.WithDrainTimeout(d)` allows sufficient grace period for in-flight jobs to complete during graceful shutdown.
 
----
+### Problem: High database CPU or lock polling spikes
 
-## Diagnostic Logging Checklist
+**Solutions:**
 
-When filing an issue or debugging:
-- [x] Enable structured debug logging via `log/slog`.
-- [x] Verify leadership status using `scheduler.Leadership()` and `scheduler.InstanceID()`.
-- [x] Inspect `/metrics` or Prometheus `dcron_is_leader` and `dcron_leader_transitions_total` metrics.
-- [x] Verify PostgreSQL connection parameters (`SetConnMaxLifetime(0)` on lock handle).
+- **Adjust poll interval**: Standby replicas poll `TryLock` periodically. Ensure `dcron.WithPollInterval` is not set to an aggressive sub-second interval. The recommended default is `3s` to `5s`.
+- **Verify jitter**: `d-cron` adds randomized jitter (±20%) to polling intervals automatically to prevent synchronized polling storms. Avoid overriding this with custom fixed timers.
 
 ---
 
-## Frequently Asked Questions (FAQ)
+## Execution and Job Issues
 
-### Q: Why use `d-cron` instead of `gocron`, `asynq`, or `robfig/cron`?
-**A:** In-process cron libraries like `robfig/cron` or `gocron` do not natively coordinate single-leader election across multiple scaled pod replicas, resulting in duplicate job runs or database connection lock spikes at trigger boundaries. Task queues like `asynq` or `river` solve coordination but require introducing extra infrastructure (Redis or custom PostgreSQL job payload queue tables with schema migrations). `d-cron` provides safe distributed single-leader coordination **in-process using PostgreSQL advisory locks with zero new database tables.**
+### Problem: Missed jobs after restart or deployment
 
----
+**Solutions:**
 
-### Q: Does `d-cron` create any database tables by default?
-**A:** **No.** By default, `d-cron` operates purely using PostgreSQL Session Advisory Locks in Postgres shared memory structures (`pg_try_advisory_lock`). It requires zero DDL schema migrations. Tables are only created if you explicitly enable optional execution history (`dcron.WithHistory(retention)`).
+- **Configure missed run policy**: By default, `d-cron` uses `MissedSkip`. If jobs must catch up after an application restart, configure `dcron.WithMissedRunPolicy(dcron.MissedCatchUp)` and `dcron.WithHistory(...)`.
+- **Set lookback limit**: Use `dcron.WithMaxLookback(24 * time.Hour)` to prevent executing runs that are too old.
 
----
+### Problem: Long-running jobs blocking subsequent schedules
 
-### Q: What happens if the active Leader node crashes or loses network connectivity?
-**A:** The TCP session between the Leader node and PostgreSQL terminates. PostgreSQL automatically drops the session-bound advisory lock. Within the configured polling interval (default: 5 seconds with jitter), one of the remaining Standby nodes acquires the advisory lock, increments the monotonic leader epoch, and takes over scheduling seamlessly.
+**Solutions:**
 
----
-
-### Q: Is `d-cron` compatible with PgBouncer?
-**A:** Yes! Because advisory locks are session-bound, you can either configure `dcron.WithDedicatedLockDSN` to point directly to PostgreSQL (bypassing PgBouncer for the lock connection), or configure a dedicated PgBouncer database alias in `session` pool mode and pass `dcron.WithSessionStableConnection()`. See the [Production Guide](./production/kubernetes.md#3-pgbouncer-and-connection-pooling) for details.
+- **Configure overlap policy**: By default, overlapping runs of the same job are skipped (`dcron.OverlapSkip`). If you need jobs to queue or run concurrently, pass `dcron.WithOverlapPolicy(dcron.OverlapQueue)` or `dcron.WithOverlapPolicy(dcron.OverlapAllow)`.
+- **Set timeouts**: Enforce maximum execution duration per job using `dcron.WithTimeout(10 * time.Minute)`.
 
 ---
 
-### Q: Can I run high-frequency jobs (e.g. every 1 second)?
-**A:** Yes. Pass `dcron.WithSecondsField()` to enable 6-field cron expressions with second-level precision. Sub-millisecond internal scheduling overhead makes high-frequency cron schedules fast and efficient.
+## Getting Help
 
----
+If you are still experiencing issues:
 
-### Q: How do I contribute or report bugs?
-**A:** `d-cron` is 100% open source under the MIT license! Contributions, issues, and feature requests are welcome on [GitHub](https://github.com/mindfire-test/d-cron).
+1. Check the [Quickstart Guide](./quickstart.md) for basic integration examples
+2. Enable structured debug logging: pass `dcron.WithLogger(slog.Default())` to `dcron.New`
+3. Inspect Prometheus metrics: observe `dcron_leadership_status`, `dcron_leader_transitions_total`, and `dcron_job_executions_total`
+4. Check the [GitHub Issues](https://github.com/mindfire-test/d-cron/issues) for similar problems
