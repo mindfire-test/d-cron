@@ -8,8 +8,6 @@ sidebar_label: Observability & Dashboard
 
 `d-cron` provides deep observability across your distributed cron cluster, including an embedded Web Dashboard UI, Prometheus metrics, OpenTelemetry distributed tracing, webhook alert hooks, and an HTTP REST Admin API.
 
----
-
 ## 1. Embedded Web Dashboard UI
 
 The web dashboard is completely self-contained in `github.com/mindfire-test/d-cron/ui` with zero external CDN dependencies, making it safe for air-gapped production environments.
@@ -65,8 +63,6 @@ func main() {
 }
 ```
 
----
-
 ## 2. REST Admin API Endpoints
 
 To programmatically inspect cluster topology or manipulate jobs at runtime, mount `dcron.AdminHandler`:
@@ -104,8 +100,6 @@ curl -X POST http://localhost:8080/api/v1/dcron/jobs/daily-report/resume
 # 4. Remove a Job Dynamically
 curl -X DELETE http://localhost:8080/api/v1/dcron/jobs/daily-report
 ```
-
----
 
 ## 3. Prometheus Metrics
 
@@ -164,8 +158,6 @@ func (r *promRecorder) RecordLeadershipChange(leader bool) {
 }
 ```
 
----
-
 ## 4. Webhook Alerts on Job Outcomes
 
 `d-cron` includes a built-in `WebhookHook` to dispatch JSON POST alerts to Slack, PagerDuty, or Discord:
@@ -194,8 +186,6 @@ scheduler, _ := dcron.New(
   "time": "2026-10-21T18:00:00Z"
 }
 ```
-
----
 
 ## 5. OpenTelemetry Distributed Tracing
 

@@ -8,8 +8,6 @@ sidebar_label: Security
 
 `d-cron` takes security, isolation, and data integrity seriously. This page outlines how to report security issues and describes the defensive security practices engineered into the library.
 
----
-
 ## Reporting Security Vulnerabilities
 
 Please report security-related vulnerabilities by opening an issue in the [d-cron repository](https://github.com/mindfire-test/d-cron/issues).
@@ -23,8 +21,6 @@ When reporting, please include:
 
 Reports are reviewed and addressed promptly by maintainers.
 
----
-
 ## Security Practices
 
 - **Zero External Daemons**: `d-cron` runs embedded in-process inside your Go application. It opens no external network listener ports and introduces no sidecar daemons, minimizing network attack surface.
@@ -33,8 +29,6 @@ Reports are reviewed and addressed promptly by maintainers.
 - **Least-Privilege Database Access**: By default, `d-cron` requires zero schema migrations and zero extra database tables. The library operates purely via PostgreSQL session advisory locks, requiring only baseline `CONNECT` privileges on the database.
 - **In-Memory Panic Recovery**: Every job executes in an isolated worker goroutine with automatic panic recovery middleware. Uncaught runtime panics in individual job functions are logged with structured stack traces and never terminate the application process or stall the scheduler clock.
 - **Bounded Resource Consumption**: Job executions support strict per-job timeouts (`dcron.WithTimeout`), exponential backoff retry caps (`dcron.WithRetry`), and graceful drain bounding (`dcron.WithDrainTimeout`) to prevent database connection exhaustion.
-
----
 
 ## Responsible Production Configuration
 

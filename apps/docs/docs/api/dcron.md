@@ -8,8 +8,6 @@ sidebar_label: API Reference
 
 Complete API reference for `d-cron` core packages: `dcron`, `executor`, `metrics`, and `otel`.
 
----
-
 ## Package `dcron`
 
 The primary package `github.com/mindfire-test/d-cron/dcron` contains the `Scheduler` type, constructor options, job registration methods, and fencing utilities.
@@ -40,8 +38,6 @@ Constructs a new distributed `Scheduler` bound to a PostgreSQL database handle.
 | `WithSchema` | `WithSchema(schema string) Option` | Sets PostgreSQL schema used for history and epoch tables. Default: `"dcron"`. |
 | `WithHooks` | `WithHooks(hooks ...Hook) Option` | Registers notification hooks (e.g. `WebhookHook`). |
 
----
-
 ### Methods on `Scheduler`
 
 ```go
@@ -68,8 +64,6 @@ func (s *Scheduler) InstanceID() string
 func (s *Scheduler) Namespace() string
 ```
 
----
-
 ### Fencing Functions
 
 ```go
@@ -82,8 +76,6 @@ func NamespaceKey(ctx context.Context) string
 func Fence(ctx context.Context, tx Querier) error
 func FenceSchema(ctx context.Context, tx Querier, schema string) error
 ```
-
----
 
 ## Package `executor`: Job Options & Policies
 
@@ -118,8 +110,6 @@ type Retry struct {
 }
 ```
 
----
-
 ## Package `metrics`: Observability Seam
 
 ```go
@@ -146,8 +136,6 @@ const (
     OutcomeSkipped  // "skipped"
 )
 ```
-
----
 
 ## Package `otel`: Distributed Tracing
 

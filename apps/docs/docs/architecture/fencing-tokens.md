@@ -10,8 +10,6 @@ In distributed systems, GC pauses, heavy OS swapping, or temporary network parti
 
 `d-cron` addresses this fundamental distributed systems challenge using **Monotonic Fencing Tokens**.
 
----
-
 ## The Split-Brain Threat
 
 Without fencing, a delayed node (Replica A) might resume executing a long-running scheduled job (such as generating daily invoices) while Replica B has already assumed leadership and triggered the same job:
@@ -21,8 +19,6 @@ Without fencing, a delayed node (Replica A) might resume executing a long-runnin
                                                       ▲
 [Replica B (New Leader)] ───(Elected Leader)────► Executes Job (Epoch 5) ───► Database Write!
 ```
-
----
 
 ## How Fencing Tokens Work
 
@@ -47,8 +43,6 @@ scheduler.Add("generate-invoices", "0 1 * * *", func(ctx context.Context) error 
     return executeInvoiceBatch(ctx, epoch)
 })
 ```
-
----
 
 ## PostgreSQL Transaction Fencing (`dcron.Fence`)
 
@@ -84,8 +78,6 @@ If another pod was promoted to leader while this handler was paused, `dcron.Fenc
 ```
 dcron: fenced write rejected: ctx epoch 4 != current db epoch 5
 ```
-
----
 
 ## Database Optimistic Fencing Pattern
 
@@ -129,8 +121,6 @@ func executeInvoiceBatch(ctx context.Context, currentEpoch int64) error {
 }
 ```
 
----
-
 ## External & Redis Distributed Fencing
 
 When writing to Redis or external key-value stores from a scheduled job, use `dcron.Epoch(ctx)` or `dcron.IdempotencyKey(ctx)` as an atomic conditional guard or lock value:
@@ -165,8 +155,6 @@ func RedisFencedJob(ctx context.Context, rdb *redis.Client) error {
 }
 ```
 
----
-
 ## Outgoing HTTP API Idempotency Fencing
 
 For jobs calling third-party payment gateways (Stripe, Adyen, Twilio), send `dcron.IdempotencyKey(ctx)` in standard idempotency headers:
@@ -180,8 +168,6 @@ req.Header.Set("Idempotency-Key", dcron.IdempotencyKey(ctx))
 ```
 
 This guarantees that even in split-brain edge cases, third-party payment gateways reject duplicate charges automatically.
-
----
 
 ## Summary
 

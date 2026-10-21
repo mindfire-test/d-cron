@@ -8,8 +8,6 @@ sidebar_label: Execution History Store
 
 By default, `d-cron` operates with zero database tables. When compliance, auditing, missed-run catch-up, or dashboard monitoring requires durable tracking, `d-cron` provides an **opt-in durable execution history store** backed by PostgreSQL.
 
----
-
 ## Enabling History Logging
 
 Enable history persistence by passing `dcron.WithHistory(retention)` to `dcron.New`:
@@ -48,8 +46,6 @@ func main() {
 	// ...
 }
 ```
-
----
 
 ## Automatic Schema Migrations
 
@@ -94,8 +90,6 @@ CREATE INDEX IF NOT EXISTS execution_job_time_idx
     ON dcron.execution (namespace, job_name, scheduled_at DESC);
 ```
 
----
-
 ## Automatic Retention & Pruning
 
 When `WithHistory(retention)` is configured with a positive retention duration (e.g. `7 * 24 * time.Hour`), the active cluster leader periodically prunes executions older than the retention boundary:
@@ -106,8 +100,6 @@ WHERE namespace = $1 AND finished_at < $2
 ```
 
 This ensures the audit table remains compact without requiring manual cron cleanup jobs or vacuum bloat.
-
----
 
 ## Querying Execution History
 

@@ -10,8 +10,6 @@ sidebar_label: Production & Kubernetes
 
 This guide covers production deployment manifests, readiness probes, PgBouncer pooler setup, and `pgx/v5` driver tuning.
 
----
-
 ## 1. Kubernetes Deployment Manifest
 
 Here is a recommended Kubernetes `Deployment` manifest passing the Pod name to `d-cron` via the Downward API:
@@ -71,8 +69,6 @@ spec:
                 command: ["/bin/sleep", "5"]
 ```
 
----
-
 ## 2. Health & Readiness Probes
 
 In your Go application, expose `/healthz` to report readiness:
@@ -91,8 +87,6 @@ http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 ```
 
 > **Important**: Do not fail readiness probes on Standby pods! Standby pods are healthy and ready to serve user HTTP requests, background API queries, and take over leadership instantly if the active leader terminates.
-
----
 
 ## 3. PgBouncer and Connection Pooling
 
@@ -141,8 +135,6 @@ scheduler, _ := dcron.New(
     dcron.WithSessionStableConnection(),
 )
 ```
-
----
 
 ## 4. Driver Setup: `pgx/v5` & `lib/pq`
 
@@ -200,8 +192,6 @@ import (
 db, _ := sql.Open("postgres", "postgres://user:pass@localhost:5432/myapp?sslmode=disable")
 scheduler, _ := dcron.New(db, dcron.WithNamespace("my-service"))
 ```
-
----
 
 ## 5. Graceful Shutdown & Drain Timeout
 

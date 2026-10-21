@@ -10,8 +10,6 @@ In production environments, a long-running batch job may take longer than its sc
 
 `d-cron` provides explicit per-job options to configure exact behavior in both scenarios.
 
----
-
 ## Overlap Policies (`OverlapPolicy`)
 
 When a job scheduled for `*/1 * * * *` (every 1 minute) takes 90 seconds to finish, what should happen when the next 60-second mark arrives?
@@ -41,8 +39,6 @@ scheduler.Add("scrape-webhooks", "*/5 * * * *", scrapeHandler,
 | `dcron.OverlapQueue` | `1` | Queues one pending execution to run immediately after the active instance finishes. |
 | `dcron.OverlapAllow` | `2` | Dispatches new executions concurrently in parallel goroutines without waiting. |
 
----
-
 ## Missed Run Policies (`MissedRunPolicy`)
 
 If your service was offline or restarting between 02:00 AM and 02:15 AM, and a job was scheduled for 02:05 AM, how should `d-cron` respond when the instance boots at 02:15 AM?
@@ -61,8 +57,6 @@ scheduler.Add("daily-settlement", "0 2 * * *", settlementHandler,
 | `dcron.MissedSkip` | `0` (Default) | Ignores past missed triggers during downtime and waits for the next future schedule time. |
 | `dcron.MissedCatchUp` | `1` | Inspects execution history and runs missed schedules sequentially up to `WithMaxCatchUpRuns` and `WithMaxLookback`. Requires `dcron.WithHistory`. |
 
----
-
 ## Execution Relative to Last Success (`WithSinceLastSuccess`)
 
 For jobs that need a fixed quiet period between executions regardless of clock alignment:
@@ -73,8 +67,6 @@ scheduler.Add("heavy-backup", "@since_success 15m", backupHandler,
     dcron.WithSinceLastSuccess(15 * time.Minute),
 )
 ```
-
----
 
 ## Example Configuration Matrix
 

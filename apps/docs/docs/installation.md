@@ -9,8 +9,6 @@ slug: /installation
 
 This page covers system requirements, module installation, and database permissions for d-cron.
 
----
-
 ## Requirements
 
 | Requirement | Minimum Version | Recommended | Notes |
@@ -18,8 +16,6 @@ This page covers system requirements, module installation, and database permissi
 | **Go** | 1.21+ | 1.23+ | Uses standard library `context`, `sync`, and `log/slog` |
 | **PostgreSQL** | 12.0+ | 14.0+ | Supports 64-bit Session Advisory Locks (`pg_try_advisory_lock`) |
 | **Go Database Driver** | `database/sql` (`lib/pq` or `pgx/v5`) | `pgx/v5` (stdlib mode) or `lib/pq` | Any standard `*sql.DB` connection pool |
-
----
 
 ## Module Installation
 
@@ -39,8 +35,6 @@ import (
     "github.com/mindfire-test/d-cron/ui"
 )
 ```
-
----
 
 ## Database Setup & Permissions
 
@@ -91,8 +85,6 @@ CREATE TABLE IF NOT EXISTS dcron.execution (
 CREATE INDEX IF NOT EXISTS idx_dcron_exec_job_sched 
     ON dcron.execution(namespace, job_name, scheduled_at DESC);
 ```
-
----
 
 ## Next Steps
 

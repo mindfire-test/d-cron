@@ -10,8 +10,6 @@ sidebar_label: Core Architecture
 
 This guide covers the core architectural building blocks: advisory locks, leader election, failover loops, and the high-precision in-memory clock engine.
 
----
-
 ## 1. PostgreSQL Session Advisory Locks
 
 Unlike traditional row-level locks (`SELECT FOR UPDATE`), PostgreSQL advisory locks exist purely in the PostgreSQL shared memory lock table and do not write to tables or generate WAL (Write-Ahead Logging) overhead.
@@ -43,8 +41,6 @@ Session-bound advisory locks are attached directly to the **underlying TCP conne
 1. **Automatic Cleanup on Crash**: If Replica A crashes, power-cycles, or experiences network partition, PostgreSQL automatically drops `Conn1` and **releases the advisory lock within seconds** (or TCP keepalive timeout).
 2. **Zero Disk I/O**: Acquiring or checking an advisory lock touches zero table buffers and generates zero WAL bloat.
 
----
-
 ## 2. Deterministic Key Resolution
 
 `d-cron` derives a deterministic 64-bit advisory lock key from your configured namespace string (e.g. `orders-service`):
@@ -64,8 +60,6 @@ func LockKey(namespace string) int64 {
 
 - Independent microservices running on the same PostgreSQL database use different namespace strings and never collide.
 - All replicas of the *same* microservice generate the exact same 64-bit lock key to contend for single-leader status.
-
----
 
 ## 3. Leader Election & Failover Loop
 
@@ -117,8 +111,6 @@ sequenceDiagram
     Standby->>Standby: Start timer clock & schedule checks
 ```
 
----
-
 ## 4. In-Memory Clock Engine & Worker Pools
 
 When an instance becomes Leader, `d-cron` initializes an internal min-heap timer wheel containing all registered cron entries (`robfig/cron/v3` semantics):
@@ -148,8 +140,6 @@ When an instance becomes Leader, `d-cron` initializes an internal min-heap timer
 2. **Isolated Worker Goroutines**: When a job fires, execution is dispatched to an isolated goroutine from the worker pool with built-in panic recovery.
 3. **Panic Protection**: A panic in one job handler is caught, logged with full stack traces via `log/slog`, and never crashes the application or halts the timer wheel.
 
----
-
 ## Advisory Locks vs Row Locks Comparison
 
 | Metric / Feature | Row-Level Locks (`SELECT FOR UPDATE`) | Session Advisory Locks (`d-cron`) |
@@ -161,8 +151,6 @@ When an instance becomes Leader, `d-cron` initializes an internal min-heap timer
 | **Lock Latency** | ~2–5 ms | **< 0.5 ms** |
 | **Heap Reschedule Overhead** | N/A | **< 250 ns per job** |
 | **Trigger Precision** | Unpredictable (DB contention) | **< 1 ms variance** |
-
----
 
 ## Elector Backend Interface
 

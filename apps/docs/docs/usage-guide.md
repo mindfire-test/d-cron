@@ -11,8 +11,6 @@ This guide explains how to configure, operate, and manage background cron jobs w
 
 For prerequisites, Go module installation, and PostgreSQL database permissions, see the [Installation Guide](./installation.md).
 
----
-
 ## Initializing the Scheduler
 
 Initialize a new scheduler instance by passing your existing `*sql.DB` connection pool along with functional options:
@@ -49,8 +47,6 @@ func createScheduler(db *sql.DB) (*dcron.Dcron, error) {
 }
 ```
 
----
-
 ## Configuration Options Reference
 
 | Option | Description | Default |
@@ -62,8 +58,6 @@ func createScheduler(db *sql.DB) (*dcron.Dcron, error) {
 | `WithTimeout(duration)` | Sets a global execution timeout for all jobs unless overridden per job. | None |
 | `WithOverlapPolicy(policy)` | Configures behavior when a job trigger arrives while the previous run is still active (`OverlapSkip` or `OverlapAllow`). | `OverlapSkip` |
 | `WithHistory(retention)` | Enables the persistent audit store to record execution logs and leader epochs in PostgreSQL. | Disabled |
-
----
 
 ## Registering Jobs & Schedules
 
@@ -91,8 +85,6 @@ err = scheduler.Add("ny-morning-report", "CRON_TZ=America/New_York 0 9 * * 1-5",
 })
 ```
 
----
-
 ## Working with Job Context
 
 Every job receives a standard `context.Context` populated with execution metadata and split-brain fencing tokens:
@@ -115,8 +107,6 @@ err := scheduler.Add("process-invoices", "@every 30m", func(ctx context.Context)
 })
 ```
 
----
-
 ## Scheduler Lifecycle & Graceful Shutdown
 
 Always manage the scheduler lifecycle alongside your application's HTTP/gRPC server:
@@ -138,8 +128,6 @@ if err := scheduler.Stop(); err != nil {
 }
 ```
 
----
-
 ## Runtime Job Controls
 
 d-cron allows dynamically inspecting, triggering, or removing jobs while the scheduler is running:
@@ -155,8 +143,6 @@ err = scheduler.Remove("cache-warmer")
 isLeader := scheduler.IsLeader()
 ```
 
----
-
 ## Running Included Examples
 
 The `examples/` directory contains complete, runnable sample applications:
@@ -171,8 +157,6 @@ go run ./examples/minimal/main.go -db "postgres://user:pass@localhost:5432/myapp
 go run ./examples/with-dashboard/main.go -port 8080
 ```
 Open `http://localhost:8080/dcron/ui/` in your browser to inspect jobs and history.
-
----
 
 ## Next Steps
 

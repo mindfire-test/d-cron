@@ -8,8 +8,6 @@ sidebar_label: Troubleshooting
 
 This page provides solutions for common issues encountered when integrating or deploying `d-cron`.
 
----
-
 ## Leadership and Locking Issues
 
 ### Problem: Leadership repeatedly cycling or dropping unexpectedly
@@ -26,8 +24,6 @@ This page provides solutions for common issues encountered when integrating or d
 
 - **Check namespace configuration**: All replicas of the same service must share the exact same namespace string. `d-cron` derives the 64-bit advisory lock key from `dcron.WithNamespace("service-name")`. If pod A uses `"service-a"` and pod B uses `"service-b"`, both will elect themselves leader.
 - **Verify single database instance**: Ensure all replicas connect to the same PostgreSQL primary database. If replicas connect to different read replicas or partitioned databases, each will acquire the advisory lock independently.
-
----
 
 ## Fencing and Concurrency Issues
 
@@ -46,8 +42,6 @@ This page provides solutions for common issues encountered when integrating or d
 - **Adjust poll interval**: Standby replicas poll `TryLock` periodically. Ensure `dcron.WithPollInterval` is not set to an aggressive sub-second interval. The recommended default is `3s` to `5s`.
 - **Verify jitter**: `d-cron` adds randomized jitter (±20%) to polling intervals automatically to prevent synchronized polling storms. Avoid overriding this with custom fixed timers.
 
----
-
 ## Execution and Job Issues
 
 ### Problem: Missed jobs after restart or deployment
@@ -63,8 +57,6 @@ This page provides solutions for common issues encountered when integrating or d
 
 - **Configure overlap policy**: By default, overlapping runs of the same job are skipped (`dcron.OverlapSkip`). If you need jobs to queue or run concurrently, pass `dcron.WithOverlapPolicy(dcron.OverlapQueue)` or `dcron.WithOverlapPolicy(dcron.OverlapAllow)`.
 - **Set timeouts**: Enforce maximum execution duration per job using `dcron.WithTimeout(10 * time.Minute)`.
-
----
 
 ## Getting Help
 

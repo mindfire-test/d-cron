@@ -9,8 +9,6 @@ slug: /intro
 
 d-cron is a lightweight, distributed cron scheduler library for Go that coordinates scheduled background jobs across multiple application replicas using only your existing PostgreSQL database.
 
----
-
 ## What Does d-cron Do?
 
 When you scale a Go application to multiple container replicas (in Kubernetes, Docker, or across cloud virtual machines), traditional in-process cron schedulers trigger jobs on every single replica simultaneously. For example, a nightly billing job scheduled for 2:00 AM runs $N$ times if you run $N$ replicas.
@@ -21,8 +19,6 @@ d-cron solves this through distributed single-leader coordination:
 - **Automatic Failover**: If the active leader container shuts down, restarts, or crashes, a standby replica seamlessly takes over without missed or duplicate triggers.
 - **Zero Extra Infrastructure**: Operates using standard PostgreSQL session-bound advisory locks. No Redis clusters, etcd, ZooKeeper, or external scheduler daemons are required.
 
----
-
 ## Who Is It For?
 
 d-cron is designed for:
@@ -30,8 +26,6 @@ d-cron is designed for:
 - **Horizontally Scaled Workloads**: Applications deployed with multiple replicas in Kubernetes or Docker where duplicate cron execution causes data inconsistency, duplicate notifications, or wasted resources.
 - **PostgreSQL Users**: Any application that already connects to PostgreSQL and wants simple, reliable distributed cron without introducing new infrastructure dependencies like Redis, RabbitMQ, or Temporal.
 - **Simplicity Seekers**: Teams that want to execute direct in-process Go functions (`scheduler.Add`) without setting up complex worker queues, serialization formats, or external daemon clusters like Dkron.
-
----
 
 ## Quick Start
 
@@ -107,8 +101,6 @@ func main() {
 
 For prerequisites and database setup, see [Installation](./installation.md). For advanced options, cron syntax, and runtime controls, see the [Usage Guide](./usage-guide.md).
 
----
-
 ## Key Features
 
 - **Single Leader Coordination**: Exactly 1 active leader pod runs the min-heap timer clock. Zero thundering-herd lock racing or database CPU spikes at minute boundaries.
@@ -118,8 +110,6 @@ For prerequisites and database setup, see [Installation](./installation.md). For
 - **In-Process Go Functions**: Register standard Go functions directly with `scheduler.Add`. No JSON serialization or worker queue decoupling required.
 - **Execution Safety & Panic Recovery**: Built-in panic recovery, configurable execution timeouts, exponential backoff retries, and overlap prevention policies.
 - **Built-in Observability**: Includes an embedded Web Dashboard UI, Prometheus metrics exporter, OpenTelemetry tracing, and an HTTP REST Admin API.
-
----
 
 ## Why d-cron?
 
@@ -134,8 +124,6 @@ When building modern Go microservices, you face three problematic alternatives f
 
 d-cron takes a simpler, more robust path: a **single leader election** via lightweight PostgreSQL advisory locks. The elected leader runs a precise in-memory timer, dispatches jobs asynchronously, and automatically yields leadership if it shuts down or partitions.
 
----
-
 ## Comparison with Similar Tools
 
 | Factor | robfig/cron | gocron | asynq | river | d-cron |
@@ -147,8 +135,6 @@ d-cron takes a simpler, more robust path: a **single leader election** via light
 | **Thundering Herd** | N/A | High (at boundary) | None | Low | **Zero (1 Leader Clock)** |
 | **Split-Brain Fencing** | No | No | No | No | **Monotonic Epoch Tokens** |
 | **License** | Open Source | Open Source | Open Source | Paid / Pro Features | **100% Open Source (MIT)** |
-
----
 
 ## Next Steps
 

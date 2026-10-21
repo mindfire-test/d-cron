@@ -8,8 +8,6 @@ sidebar_label: Contributing
 
 Thank you for your interest in contributing to `d-cron`! We welcome contributions from the community and value every contributor, whether you are fixing a bug, adding a feature, improving documentation, or reporting an issue.
 
----
-
 ## Code of Conduct
 
 We are committed to providing a welcoming and inclusive experience for everyone, and we expect all contributors to be respectful and constructive in all interactions.
@@ -31,8 +29,6 @@ We are committed to providing a welcoming and inclusive experience for everyone,
 ### Reporting Issues
 
 If you experience or witness unacceptable behavior, please report it by opening an issue in the [d-cron repository](https://github.com/mindfire-test/d-cron/issues). All reports will be reviewed and investigated promptly and fairly.
-
----
 
 ## Getting Started
 
@@ -79,8 +75,6 @@ git push origin main
 # Create your feature branch
 git checkout -b feat/your-feature-name
 ```
-
----
 
 ## Development Workflow
 
@@ -139,16 +133,12 @@ test: add tests for X
 chore: update dependencies
 ```
 
----
-
 ## Pull Request Process
 
 1. Ensure your code passes all linting (`golangci-lint run ./...`) and tests (`go test -v -race ./...`)
 2. Update documentation in `apps/docs/docs/` if your changes alter public APIs or configuration options
 3. Submit a pull request with a clear description of changes referencing any related issues
 4. Your PR will be reviewed by maintainers
-
----
 
 ## Project Structure
 
@@ -168,8 +158,6 @@ apps/
 examples/           # Ready-to-run standalone examples
 test/               # Integration tests and test suites
 ```
-
----
 
 ## Attribution
 
