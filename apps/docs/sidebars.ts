@@ -3,70 +3,87 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 const sidebars: SidebarsConfig = {
   docsSidebar: [
     {
-      type: 'category',
-      label: 'Getting Started',
-      collapsed: false,
-      items: [
-        'intro',
-        'quickstart',
-        'installation',
-        'cron-expressions',
-        'cli-commands',
-      ],
+      type: 'doc',
+      id: 'intro',
+      label: 'Overview',
+    },
+    {
+      type: 'doc',
+      id: 'installation',
+      label: 'Installation',
+    },
+    {
+      type: 'doc',
+      id: 'quickstart',
+      label: 'Quickstart',
     },
     {
       type: 'category',
-      label: 'Core Concepts & Architecture',
+      label: 'Features',
       collapsed: false,
+      link: {
+        type: 'generated-index',
+        title: 'Features',
+        description: 'Explore the core features of d-cron: distributed coordination, split-brain fencing, execution safety, and observability.',
+        slug: '/features',
+      },
       items: [
-        'architecture/advisory-locks',
-        'architecture/leader-election',
-        'architecture/fencing-tokens',
-        'architecture/clock-engine',
+        {
+          type: 'doc',
+          id: 'architecture/advisory-locks',
+          label: 'Core Architecture',
+        },
+        {
+          type: 'doc',
+          id: 'architecture/fencing-tokens',
+          label: 'Split-Brain & Fencing',
+        },
+        {
+          type: 'doc',
+          id: 'guides/execution-safety',
+          label: 'Execution Safety & Retries',
+        },
+        {
+          type: 'doc',
+          id: 'guides/overlap-missed-runs',
+          label: 'Overlap & Missed Runs',
+        },
+        {
+          type: 'doc',
+          id: 'guides/history-store',
+          label: 'Execution History Store',
+        },
+        {
+          type: 'doc',
+          id: 'guides/observability',
+          label: 'Observability & Dashboard',
+        },
+        {
+          type: 'doc',
+          id: 'production/kubernetes',
+          label: 'Production & Kubernetes',
+        },
       ],
     },
     {
-      type: 'category',
-      label: 'Feature Guides',
-      collapsed: false,
-      items: [
-        'guides/execution-safety',
-        'guides/overlap-missed-runs',
-        'guides/observability',
-        'guides/history-store',
-        'guides/admin-api',
-        'guides/user-fencing',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Production & Integrations',
-      collapsed: false,
-      items: [
-        'production/pgbouncer',
-        'production/kubernetes',
-        'production/pgx-driver',
-      ],
-    },
-    {
-      type: 'category',
+      type: 'doc',
+      id: 'api/dcron',
       label: 'API Reference',
-      collapsed: false,
-      items: [
-        'api/dcron',
-        'api/executor',
-        'api/metrics',
-      ],
     },
     {
-      type: 'category',
-      label: 'Help & Community',
-      collapsed: false,
-      items: [
-        'troubleshooting',
-        'contributing',
-        'faq',
-      ],
+      type: 'doc',
+      id: 'troubleshooting',
+      label: 'Troubleshooting',
+    },
+    {
+      type: 'doc',
+      id: 'security',
+      label: 'Security',
+    },
+    {
+      type: 'doc',
+      id: 'contributing',
+      label: 'Contributing',
     },
   ],
 };

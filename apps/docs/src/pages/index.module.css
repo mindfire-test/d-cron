@@ -4,7 +4,7 @@
   text-align: center;
   position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #31104b 100%);
+  background: linear-gradient(135deg, var(--dsb-hero-from) 0%, var(--dsb-hero-mid) 50%, var(--dsb-hero-to) 100%);
 }
 
 .heroBanner::before {
@@ -12,9 +12,9 @@
   position: absolute;
   inset: 0;
   background-image: 
-    radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
-    radial-gradient(circle at 80% 20%, rgba(168, 85, 247, 0.12) 0%, transparent 50%),
-    radial-gradient(circle at 50% 80%, rgba(79, 70, 229, 0.2) 0%, transparent 50%);
+    radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 50% 80%, var(--dsb-hero-glow) 0%, transparent 50%);
   pointer-events: none;
 }
 
@@ -23,8 +23,8 @@
   position: absolute;
   inset: 0;
   background-image: 
-    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    linear-gradient(var(--dsb-hero-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--dsb-hero-grid) 1px, transparent 1px);
   background-size: 60px 60px;
   pointer-events: none;
 }
@@ -32,13 +32,13 @@
 .heroInner {
   position: relative;
   z-index: 1;
-  max-width: 850px;
+  max-width: 800px;
   margin: 0 auto;
   padding: 0 2rem;
 }
 
 .heroTitle {
-  font-size: 3.75rem;
+  font-size: 3.5rem;
   font-weight: 800;
   color: #ffffff;
   margin-bottom: 1rem;
@@ -47,7 +47,7 @@
 }
 
 .heroTitleGradient {
-  background: linear-gradient(135deg, #a5b4fc 0%, #c084fc 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #f7777f 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -55,10 +55,10 @@
 
 .heroSubtitle {
   font-size: 1.25rem;
-  color: rgba(226, 232, 240, 0.85);
+  color: rgba(255, 255, 255, 0.75);
   margin-bottom: 2.5rem;
   line-height: 1.6;
-  max-width: 650px;
+  max-width: 600px;
   margin-left: auto;
   margin-right: auto;
 }
@@ -77,22 +77,20 @@
   gap: 0.5rem;
   padding: 0.875rem 2rem;
   border-radius: 0.75rem;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: #ffffff;
+  background: #ffffff;
+  color: #e30613;
   font-weight: 600;
   font-size: 1rem;
   border: none;
   cursor: pointer;
   transition: all 0.2s ease;
   text-decoration: none;
-  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
 }
 
 .buttonPrimary:hover {
-  background: linear-gradient(135deg, #4f46e5, #4338ca);
+  background: rgba(255, 255, 255, 0.9);
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.6);
-  color: #ffffff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
   text-decoration: none;
 }
 
@@ -102,7 +100,7 @@
   gap: 0.5rem;
   padding: 0.875rem 2rem;
   border-radius: 0.75rem;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
   font-weight: 600;
   font-size: 1rem;
@@ -115,23 +113,21 @@
 .buttonSecondary:hover {
   background: rgba(255, 255, 255, 0.15);
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
-  color: #ffffff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
   text-decoration: none;
 }
 
 .heroTerminal {
   margin-top: 3rem;
-  max-width: 680px;
+  max-width: 650px;
   margin-left: auto;
   margin-right: auto;
-  background: rgba(15, 23, 42, 0.85);
+  background: rgba(0, 0, 0, 0.5);
   border-radius: 0.75rem;
-  border: 1px solid rgba(165, 180, 252, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   overflow: hidden;
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(8px);
   text-align: left;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
 }
 
 .terminalHeader {
@@ -139,8 +135,8 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  background: rgba(0, 0, 0, 0.4);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .terminalDot {
@@ -157,20 +153,20 @@
   padding: 1.25rem 1.5rem;
   font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
   font-size: 0.875rem;
-  color: rgba(241, 245, 249, 0.9);
+  color: rgba(255, 255, 255, 0.85);
   line-height: 1.7;
 }
 
 .terminalPrompt {
-  color: #818cf8;
+  color: #4ade80;
 }
 
 .terminalCommand {
-  color: #38bdf8;
+  color: #ffffff;
 }
 
 .terminalOutput {
-  color: rgba(226, 232, 240, 0.7);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .terminalHighlight {
@@ -181,7 +177,7 @@
 /* Features Section */
 .features {
   padding: 5rem 0;
-  background: var(--ifm-background-color);
+  background: var(--dsb-bg);
 }
 
 .sectionHeader {
@@ -192,21 +188,21 @@
 .sectionTitle {
   font-size: 2.25rem;
   font-weight: 700;
-  color: var(--ifm-font-color-base);
+  color: var(--dsb-text);
   margin-bottom: 0.75rem;
   letter-spacing: -0.01em;
 }
 
 .sectionSubtitle {
   font-size: 1.125rem;
-  color: var(--ifm-color-emphasis-700);
-  max-width: 580px;
+  color: var(--dsb-muted);
+  max-width: 500px;
   margin: 0 auto;
 }
 
 .featureCard {
-  background: var(--ifm-card-background-color, rgba(99, 102, 241, 0.03));
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  background: var(--dsb-card-bg);
+  border: 1px solid var(--dsb-card-border);
   border-radius: 1rem;
   padding: 2rem;
   height: 100%;
@@ -222,16 +218,16 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, #6366f1, transparent);
+  background: linear-gradient(90deg, transparent, #e30613, transparent);
   opacity: 0;
   transition: opacity 0.3s ease;
 }
 
 .featureCard:hover {
-  border-color: rgba(99, 102, 241, 0.4);
+  border-color: rgba(227, 6, 19, 0.3);
   transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.12);
-  background: rgba(99, 102, 241, 0.06);
+  box-shadow: 0 12px 40px var(--dsb-shadow);
+  background: var(--dsb-card-hover);
 }
 
 .featureCard:hover::before {
@@ -242,25 +238,25 @@
   width: 48px;
   height: 48px;
   border-radius: 0.75rem;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.1) 100%);
+  background: linear-gradient(135deg, rgba(227, 6, 19, 0.2) 0%, rgba(227, 6, 19, 0.1) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 1.25rem;
   font-size: 1.5rem;
-  color: #6366f1;
+  color: #e30613;
 }
 
 .featureTitle {
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--ifm-font-color-base);
+  color: var(--dsb-text);
   margin-bottom: 0.5rem;
 }
 
 .featureDesc {
   font-size: 0.9375rem;
-  color: var(--ifm-color-emphasis-700);
+  color: var(--dsb-muted);
   line-height: 1.6;
 }
 
@@ -270,14 +266,14 @@
   text-align: center;
   position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+  background: var(--dsb-cta-bg);
 }
 
 .cta::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.2) 0%, transparent 60%);
+  background: radial-gradient(circle at 50% 50%, var(--dsb-cta-glow) 0%, transparent 60%);
   pointer-events: none;
 }
 
@@ -290,7 +286,7 @@
 }
 
 .ctaTitle {
-  color: #ffffff;
+  color: var(--dsb-text);
   font-size: 2.5rem;
   font-weight: 700;
   margin-bottom: 0.75rem;
@@ -298,7 +294,7 @@
 }
 
 .ctaSubtitle {
-  color: rgba(226, 232, 240, 0.8);
+  color: var(--dsb-muted);
   font-size: 1.125rem;
   margin-bottom: 2rem;
   line-height: 1.6;
@@ -310,7 +306,7 @@
   gap: 0.5rem;
   padding: 1rem 2.5rem;
   border-radius: 0.75rem;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  background: linear-gradient(135deg, #e30613, #f01622);
   color: #ffffff;
   font-weight: 600;
   font-size: 1rem;
@@ -318,13 +314,12 @@
   cursor: pointer;
   transition: all 0.2s ease;
   text-decoration: none;
-  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 4px 20px rgba(227, 6, 19, 0.3);
 }
 
 .ctaButton:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.6);
-  color: #ffffff;
+  box-shadow: 0 8px 30px rgba(227, 6, 19, 0.4);
   text-decoration: none;
 }
 
@@ -335,7 +330,7 @@
   }
 
   .heroTitle {
-    font-size: 2.5rem;
+    font-size: 2.25rem;
   }
 
   .heroSubtitle {
