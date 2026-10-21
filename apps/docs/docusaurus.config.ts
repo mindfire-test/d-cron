@@ -165,7 +165,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Mindfire Digital. Built with Docusaurus for d-cron.`,
+      copyright: `© ${new Date().getFullYear()} Mindfire FOSS`,
     },
     prism: {
       theme: prismThemes.github,
