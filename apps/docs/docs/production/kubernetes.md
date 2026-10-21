@@ -77,22 +77,48 @@ Extract `POD_NAME` from environment variables during Go application startup:
 package main
 
 import (
+	"context"
+	"database/sql"
+	"log"
 	"os"
-	"github.com/mindfiredigital/d-cron/dcron"
+	"os/signal"
+	"syscall"
+	"time"
+
+	_ "github.com/lib/pq"
+	"github.com/mindfire-test/d-cron/dcron"
 )
 
 func main() {
-	podName := os.Getenv("POD_NAME")
-	if podName == "" {
-		podName = "local-dev-instance"
+	db, err := sql.Open("postgres", os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatal(err)
 	}
+	defer db.Close()
 
 	scheduler, err := dcron.New(
 		db,
 		dcron.WithNamespace("orders-service"),
-		dcron.WithInstanceID(podName),
+		dcron.WithSessionStableConnection(),
+		dcron.WithPollInterval(3*time.Second),
 	)
-    // ...
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	scheduler.Start(context.Background())
+
+	// Wait for Kubernetes SIGTERM signal
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+
+	log.Println("Shutting down d-cron scheduler gracefully...")
+	drainCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := scheduler.Stop(drainCtx); err != nil {
+		log.Printf("Scheduler stop warning: %v", err)
+	}
 }
 ```
 
@@ -103,18 +129,5 @@ func main() {
 During a Kubernetes rolling deployment (`kubectl rollout restart deployment/orders-service`):
 
 1. **SIGTERM Signal**: Kubernetes sends `SIGTERM` to the old active Leader Pod.
-2. **Graceful Stop**: `scheduler.Stop()` closes active job contexts and releases the PostgreSQL advisory lock session immediately.
-3. **Standby Failover**: One of the remaining pods (or newly launched pod) acquires the advisory lock within `< 1s` and promotes to Leader.
-
-### Shutdown Code Pattern
-
-```go
-ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-defer stop()
-
-// Wait for termination signal
-<-ctx.Done()
-
-log.Println("Shutting down d-cron scheduler...")
-scheduler.Stop() // Releases advisory lock session gracefully
-```
+2. **Graceful Stop**: `scheduler.Stop(drainCtx)` releases the PostgreSQL advisory lock session and allows running jobs to complete up to `drainTimeout`.
+3. **Standby Failover**: One of the remaining pods acquires the advisory lock within `< 1 poll interval` and promotes to Leader seamlessly.

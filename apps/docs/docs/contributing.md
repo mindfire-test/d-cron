@@ -27,7 +27,7 @@ Before building `d-cron` locally, ensure you have the following installed:
 ### 1. Clone Repository & Install Dependencies
 
 ```bash
-git clone https://github.com/mindfiredigital/d-cron.git
+git clone https://github.com/mindfire-test/d-cron.git
 cd d-cron
 go mod download
 ```

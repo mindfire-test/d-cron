@@ -78,6 +78,6 @@ scheduler, err := dcron.New(db, dcron.WithPollInterval(3 * time.Second))
 
 When filing an issue or debugging:
 - [x] Enable structured debug logging via `log/slog`.
-- [x] Verify current leader ID using `scheduler.IsLeader()`.
-- [x] Inspect `/metrics` or Prometheus `dcron_is_leader` and `dcron_leader_epoch` metrics.
+- [x] Verify leadership status using `scheduler.Leadership()` and `scheduler.InstanceID()`.
+- [x] Inspect `/metrics` or Prometheus `dcron_is_leader` and `dcron_leader_transitions_total` metrics.
 - [x] Verify PostgreSQL connection parameters (`SetConnMaxLifetime(0)` on lock handle).

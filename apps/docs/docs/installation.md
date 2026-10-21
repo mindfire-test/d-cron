@@ -14,9 +14,9 @@ sidebar_label: Installation
 
 | Requirement | Minimum Version | Recommended | Notes |
 | :--- | :--- | :--- | :--- |
-| **Go** | 1.21+ | 1.22+ | Uses standard `context`, `sync`, and `log/slog` |
-| **PostgreSQL** | 12.0+ | 14.0+ | Supports 32-bit and 64-bit Advisory Locks |
-| **Go Database Driver** | `database/sql` (`lib/pq` or `pgx/v5`) | `pgx/v5` (stdlib mode) | Any standard `*sql.DB` connection pool |
+| **Go** | 1.21+ | 1.23+ | Uses standard `context`, `sync`, and `log/slog` |
+| **PostgreSQL** | 12.0+ | 14.0+ | Supports 64-bit Advisory Locks |
+| **Go Database Driver** | `database/sql` (`lib/pq` or `pgx/v5`) | `pgx/v5` (stdlib mode) or `lib/pq` | Any standard `*sql.DB` connection pool |
 
 ---
 
@@ -25,18 +25,18 @@ sidebar_label: Installation
 Install `d-cron` using standard Go modules:
 
 ```bash
-go get github.com/mindfiredigital/d-cron@latest
+go get github.com/mindfire-test/d-cron@latest
 ```
 
-If you are using optional observability integrations or database adapters, you can also fetch the optional packages:
+Optional sub-packages (metrics, tracing, web dashboard UI) are in the same module and require no extra downloads:
 
-```bash
-# Optional: Prometheus & OpenTelemetry instrumentation
-go get github.com/mindfiredigital/d-cron/metrics
-go get github.com/mindfiredigital/d-cron/otel
-
-# Optional: Embedded Web Dashboard UI
-go get github.com/mindfiredigital/d-cron/ui
+```go
+import (
+    "github.com/mindfire-test/d-cron/dcron"
+    "github.com/mindfire-test/d-cron/metrics"
+    "github.com/mindfire-test/d-cron/otel"
+    "github.com/mindfire-test/d-cron/ui"
+)
 ```
 
 ---
@@ -58,34 +58,44 @@ GRANT CONNECT ON DATABASE myapp_db TO app_user;
 
 ### Optional History & Audit Store Setup
 
-If you enable execution history logging (`dcron.WithHistoryStore`), `d-cron` records job run status, duration, leader instance ID, and error messages to a database table.
+If you enable durable execution history logging (`dcron.WithHistory(retention)`), `d-cron` automatically creates and migrates its required schema (default `"dcron"`) and tables (`leader_epoch` and `execution`) under a serialized advisory lock.
 
-Execute the following DDL migration script to create the audit table:
+If your database user does not have DDL privileges, you can execute the idempotent DDL migration script manually:
 
 ```sql
-CREATE TABLE IF NOT EXISTS dcron_job_history (
-    id BIGSERIAL PRIMARY KEY,
-    job_name VARCHAR(255) NOT NULL,
-    schedule VARCHAR(100) NOT NULL,
-    instance_id VARCHAR(255) NOT NULL,
-    leader_epoch BIGINT NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL,
-    finished_at TIMESTAMPTZ NOT NULL,
-    duration_ms BIGINT NOT NULL,
-    status VARCHAR(50) NOT NULL, -- 'SUCCESS', 'FAILED', 'CANCELLED', 'SKIPPED'
-    error_message TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE SCHEMA IF NOT EXISTS dcron;
+
+CREATE TABLE IF NOT EXISTS dcron.leader_epoch (
+    namespace   TEXT PRIMARY KEY,
+    epoch       BIGINT NOT NULL,
+    instance_id TEXT NOT NULL,
+    acquired_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_dcron_history_job_started 
-ON dcron_job_history (job_name, started_at DESC);
+CREATE TABLE IF NOT EXISTS dcron.execution (
+    id            BIGSERIAL PRIMARY KEY,
+    namespace     TEXT NOT NULL,
+    job_name      TEXT NOT NULL,
+    scheduled_at  TIMESTAMPTZ NOT NULL,
+    started_at    TIMESTAMPTZ NOT NULL,
+    finished_at   TIMESTAMPTZ,
+    status        TEXT NOT NULL,
+    attempt       INT NOT NULL DEFAULT 1,
+    duration_ms   BIGINT,
+    error         TEXT,
+    instance_id   TEXT NOT NULL,
+    leader_epoch  BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS execution_job_time_idx 
+    ON dcron.execution (namespace, job_name, scheduled_at DESC);
 ```
 
 ---
 
 ## 🔧 Basic Initialization Pattern
 
-Here is the standard initialization pattern inside a Go application main file:
+Here is the standard initialization pattern inside a Go application `main.go`:
 
 ```go
 package main
@@ -95,14 +105,15 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/mindfiredigital/d-cron/dcron"
+	_ "github.com/lib/pq"
+	"github.com/mindfire-test/d-cron/dcron"
 )
 
 func main() {
 	// 1. Open PostgreSQL connection
-	db, err := sql.Open("pgx", "postgres://user:pass@localhost:5432/myapp_db?sslmode=disable")
+	db, err := sql.Open("postgres", "postgres://user:pass@localhost:5432/myapp_db?sslmode=disable")
 	if err != nil {
 		log.Fatalf("failed to connect to postgres: %v", err)
 	}
@@ -112,7 +123,8 @@ func main() {
 	scheduler, err := dcron.New(
 		db,
 		dcron.WithNamespace("myapp-scheduler"),
-		dcron.WithInstanceID("pod-replica-01"),
+		dcron.WithSessionStableConnection(),
+		dcron.WithPollInterval(3*time.Second),
 	)
 	if err != nil {
 		log.Fatalf("failed to create scheduler: %v", err)
@@ -120,7 +132,7 @@ func main() {
 
 	// 3. Register Jobs
 	err = scheduler.Add("cleanup-temp-files", "0 */6 * * *", func(ctx context.Context) error {
-		fmt.Println("Cleaning up temporary files...")
+		fmt.Printf("Cleaning up temporary files (leader epoch: %d)...\n", dcron.Epoch(ctx))
 		return nil
 	})
 	if err != nil {
@@ -132,8 +144,12 @@ func main() {
 		log.Fatalf("scheduler start error: %v", err)
 	}
 
-	// Wait for signal and shutdown gracefully
-	// scheduler.Stop()
+	// 5. Run application, then shutdown gracefully
+	stopCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := scheduler.Stop(stopCtx); err != nil {
+		log.Printf("scheduler stop warning: %v", err)
+	}
 }
 ```
 

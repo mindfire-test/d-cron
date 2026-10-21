@@ -26,33 +26,26 @@ Without fencing, a delayed node (Replica A) might resume executing a long-runnin
 
 ## 🔑 How Fencing Tokens Work
 
-`d-cron` attaches a strictly increasing **Monotonic Leader Epoch** to the `context.Context` of every job execution:
+`d-cron` attaches a strictly increasing **Monotonic Leader Epoch** and an execution **Idempotency Key** to the `context.Context` of every job execution.
 
-```go
-type FencingToken struct {
-    Epoch      int64  // Monotonically increasing number (1, 2, 3...)
-    LeaderID   string // Node instance ID (e.g. "pod-replica-02")
-}
-```
-
-Whenever a node acquires leadership, it increments the global epoch stored in its advisory lock session context.
+Whenever a node acquires leadership, it advances the cluster epoch (stored in `{schema}.leader_epoch`).
 
 ### Reading Fencing Tokens in Job Handlers
 
-Inside your Go job handlers, extract the fencing token using `dcron.GetFencingToken(ctx)`:
+Inside your Go job handlers, extract the fencing token using `dcron.Epoch(ctx)` and `dcron.IdempotencyKey(ctx)`:
 
 ```go
 scheduler.Add("generate-invoices", "0 1 * * *", func(ctx context.Context) error {
-    // Extract fencing metadata
-    token, ok := dcron.GetFencingToken(ctx)
-    if !ok {
-        return errors.New("missing fencing token in context")
-    }
+    epoch := dcron.Epoch(ctx)
+    idempotencyKey := dcron.IdempotencyKey(ctx)
 
-    fmt.Printf("Job running under Leader Epoch: %d by Node: %s\n", token.Epoch, token.LeaderID)
+    slog.Info("Job running",
+        "leader_epoch", epoch,
+        "idempotency_key", idempotencyKey,
+    )
 
-    // Pass token to database queries / transactions
-    return executeInvoiceBatch(ctx, token.Epoch)
+    // Pass epoch or use dcron.Fence(ctx, tx) in database transactions
+    return executeInvoiceBatch(ctx, epoch)
 })
 ```
 
@@ -105,6 +98,6 @@ func executeInvoiceBatch(ctx context.Context, currentEpoch int64) error {
 
 ## 📌 Summary
 
-1. **Context Carrier**: Every `d-cron` job receives a `ctx` populated with the active `FencingToken`.
+1. **Context Carrier**: Every `d-cron` job receives a `ctx` populated with the active leader epoch (`dcron.Epoch(ctx)`) and idempotency key (`dcron.IdempotencyKey(ctx)`).
 2. **Monotonic Guarantee**: Epochs strictly increment on every failover, ensuring older leaders can never produce higher tokens than newer leaders.
-3. **Storage Fencing**: Combining Go context tokens with database conditional updates guarantees 100% safety even under catastrophic network splits.
+3. **Storage Fencing**: Combining Go context tokens with database conditional updates (or `dcron.Fence(ctx, tx)`) guarantees 100% safety even under catastrophic network splits.

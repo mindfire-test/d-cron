@@ -14,7 +14,7 @@ While `d-cron` is primarily used as an embedded Go library, `d-cron` provides co
 
 You can interact with a running `d-cron` cluster via its REST API (see [Admin API Guide](./guides/admin-api.md)) using standard `curl` or HTTP CLI clients.
 
-### 1. Check Leader Status & Topology
+### 1. Check Leader Status & Jobs Snapshot
 
 ```bash
 curl -s http://localhost:8080/api/v1/dcron/status | jq .
@@ -23,63 +23,41 @@ curl -s http://localhost:8080/api/v1/dcron/status | jq .
 **Output:**
 ```json
 {
-  "instance_id": "pod-orders-7f9b8-x2k9l",
-  "is_leader": true,
-  "leader_epoch": 14,
+  "instance": "a1b2c3d4e5f60718",
   "namespace": "orders-service",
-  "uptime_seconds": 84201,
-  "active_jobs_count": 8
+  "is_leader": true,
+  "jobs": [
+    {
+      "name": "daily-report",
+      "spec": "0 2 * * *",
+      "next_run": "2026-10-22T02:00:00Z",
+      "last_run": "2026-10-21T02:00:00Z",
+      "last_outcome": "success",
+      "running": false,
+      "paused": false
+    }
+  ]
 }
 ```
 
 ---
 
-### 2. List All Registered Jobs
+### 2. Pause and Resume Jobs
 
 ```bash
-curl -s http://localhost:8080/api/v1/dcron/jobs | jq .
-```
-
-**Output:**
-```json
-[
-  {
-    "name": "cleanup-temp-files",
-    "schedule": "0 */6 * * *",
-    "next_run": "2026-09-21T12:00:00Z",
-    "last_status": "SUCCESS",
-    "last_duration_ms": 142
-  },
-  {
-    "name": "generate-invoices",
-    "schedule": "0 1 * * *",
-    "next_run": "2026-09-22T01:00:00Z",
-    "last_status": "SUCCESS",
-    "last_duration_ms": 4820
-  }
-]
-```
-
----
-
-### 3. Manually Trigger a Job via Shell
-
-Trigger immediate out-of-schedule execution of a registered job:
-
-```bash
-curl -X POST http://localhost:8080/api/v1/dcron/jobs/generate-invoices/trigger
-```
-
----
-
-### 4. Pause and Resume Jobs
-
-```bash
-# Pause job triggers
-curl -X POST http://localhost:8080/api/v1/dcron/jobs/generate-invoices/pause
+# Pause future job triggers
+curl -i -X POST http://localhost:8080/api/v1/dcron/jobs/daily-report/pause
 
 # Resume job triggers
-curl -X POST http://localhost:8080/api/v1/dcron/jobs/generate-invoices/resume
+curl -i -X POST http://localhost:8080/api/v1/dcron/jobs/daily-report/resume
+```
+
+---
+
+### 3. Remove a Job Dynamically
+
+```bash
+curl -i -X DELETE http://localhost:8080/api/v1/dcron/jobs/daily-report
 ```
 
 ---

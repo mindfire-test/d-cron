@@ -6,82 +6,122 @@ sidebar_label: History Store
 
 # 📜 Audit & History Store
 
-`d-cron` supports pluggable audit logging stores to record job execution logs, execution status, latencies, and error messages to PostgreSQL or ORMs like GORM and Sqlx.
+By default, `d-cron` operates with zero database tables. When compliance, auditing, missed-run catch-up, or dashboard monitoring requires durable tracking, `d-cron` provides an **opt-in durable execution history store** backed by PostgreSQL.
 
 ---
 
 ## 💾 Enabling History Logging
 
-To persist job execution logs, pass a `HistoryStore` implementation to `dcron.WithHistoryStore`:
+Enable history persistence by passing `dcron.WithHistory(retention)` to `dcron.New`:
 
 ```go
+package main
+
 import (
-	"github.com/mindfiredigital/d-cron/dcron"
-	"github.com/mindfiredigital/d-cron/dcron/history"
+	"database/sql"
+	"log"
+	"time"
+
+	_ "github.com/lib/pq"
+	"github.com/mindfire-test/d-cron/dcron"
 )
 
 func main() {
-	// Create PostgreSQL History Store using database/sql
-	store := history.NewPostgresStore(db)
+	db, err := sql.Open("postgres", "postgres://user:pass@localhost:5432/myapp?sslmode=disable")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
 
 	scheduler, err := dcron.New(
 		db,
-		dcron.WithHistoryStore(store),
+		dcron.WithNamespace("orders-service"),
+		dcron.WithSessionStableConnection(),
+		// Retain execution records for 7 days
+		dcron.WithHistory(7*24*time.Hour),
+		// Optional: custom schema (defaults to "dcron")
+		dcron.WithSchema("dcron"),
 	)
-    // ...
+	if err != nil {
+		log.Fatalf("failed to init scheduler: %v", err)
+	}
+	// ...
 }
 ```
 
 ---
 
-## 🗄️ Database Table Schema
+## 🗄️ Automatic Schema Migrations
 
-Ensure your database contains the `dcron_job_history` table (see [Installation SQL Setup](../installation.md#optional-history--audit-store-setup)):
+When `dcron.WithHistory` is enabled:
+1. `d-cron` acquires a dedicated advisory lock (`d-cron:migration:<schema>`) to serialize schema creation across multiple starting replicas.
+2. It executes idempotent DDL creating the configured schema (default `dcron`) and two core tables:
+
+### 1. `leader_epoch` Table
+Stores the active leader instance and current monotonic election epoch for split-brain fencing:
 
 ```sql
-CREATE TABLE IF NOT EXISTS dcron_job_history (
-    id BIGSERIAL PRIMARY KEY,
-    job_name VARCHAR(255) NOT NULL,
-    schedule VARCHAR(100) NOT NULL,
-    instance_id VARCHAR(255) NOT NULL,
-    leader_epoch BIGINT NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL,
-    finished_at TIMESTAMPTZ NOT NULL,
-    duration_ms BIGINT NOT NULL,
-    status VARCHAR(50) NOT NULL,
-    error_message TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE SCHEMA IF NOT EXISTS dcron;
+
+CREATE TABLE IF NOT EXISTS dcron.leader_epoch (
+    namespace   TEXT PRIMARY KEY,
+    epoch       BIGINT NOT NULL,
+    instance_id TEXT NOT NULL,
+    acquired_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+```
+
+### 2. `execution` Table
+Records individual job execution attempts, timestamps, latencies, and outcomes:
+
+```sql
+CREATE TABLE IF NOT EXISTS dcron.execution (
+    id            BIGSERIAL PRIMARY KEY,
+    namespace     TEXT NOT NULL,
+    job_name      TEXT NOT NULL,
+    scheduled_at  TIMESTAMPTZ NOT NULL,
+    started_at    TIMESTAMPTZ NOT NULL,
+    finished_at   TIMESTAMPTZ,
+    status        TEXT NOT NULL, -- "running", "success", "failed", "panicked", "timeout"
+    attempt       INT NOT NULL DEFAULT 1,
+    duration_ms   BIGINT,
+    error         TEXT,
+    instance_id   TEXT NOT NULL,
+    leader_epoch  BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS execution_job_time_idx
+    ON dcron.execution (namespace, job_name, scheduled_at DESC);
 ```
 
 ---
 
-## 🔌 GORM & Sqlx Adapters
+## 🧹 Automatic Retention & Pruning
 
-### GORM Adapter
+When `WithHistory(retention)` is configured with a positive retention duration (e.g. `7 * 24 * time.Hour`), the active cluster leader periodically prunes executions older than the retention boundary:
 
-If your application uses [GORM](https://gorm.io):
-
-```go
-import "github.com/mindfiredigital/d-cron/dcron/history/gormstore"
-
-gormStore := gormstore.New(gormDB)
-
-// GORM can automatically migrate the history model if auto-migration is enabled:
-gormStore.AutoMigrate()
-
-scheduler, _ := dcron.New(db, dcron.WithHistoryStore(gormStore))
+```sql
+DELETE FROM dcron.execution
+WHERE namespace = $1 AND finished_at < $2
 ```
 
-### In-Memory Testing Store
+This ensures the audit table remains compact without requiring manual cron cleanup jobs or vacuum bloat.
 
-For unit testing without a live database:
+---
+
+## 🔍 Querying Execution History
+
+You can query execution history directly in SQL or inspect recent runs programmatically:
 
 ```go
-memStore := history.NewInMemoryStore()
-scheduler, _ := dcron.New(db, dcron.WithHistoryStore(memStore))
-
-// Inspect records after test run
-records := memStore.GetHistory("my-test-job")
-fmt.Printf("Total runs recorded: %d\n", len(records))
+// SQL query for recent job failures:
+rows, err := db.QueryContext(ctx, `
+    SELECT job_name, scheduled_at, duration_ms, status, error
+    FROM dcron.execution
+    WHERE namespace = 'orders-service' AND status != 'success'
+    ORDER BY scheduled_at DESC
+    LIMIT 50
+`)
 ```
+
+When used alongside the embedded dashboard (`ui.Handler`), historical rows are rendered dynamically in the dashboard view.
