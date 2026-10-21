@@ -7,7 +7,7 @@ import (
 )
 
 // MemoryCoordinator is an in-process implementation of [Coordinator] that uses a
-// simple mutex instead of PostgreSQL advisory locks (issue #52, FR-111).
+// simple mutex instead of PostgreSQL advisory locks.
 //
 // It is designed for:
 //   - Single-replica deployments where no real coordination is required.

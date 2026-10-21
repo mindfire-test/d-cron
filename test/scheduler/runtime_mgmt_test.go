@@ -1,7 +1,6 @@
 package dcron_test
 
-// Tests for runtime job management: Pause, Resume, Remove, AddDynamic
-// (issue #50, FR-211).
+// Tests for runtime job management: Pause, Resume, Remove, AddDynamic.
 //
 // These tests use the in-process fakeBackend so they run without Postgres.
 

@@ -76,24 +76,25 @@ sequenceDiagram
 
 ## ⏱️ Leader Election Configuration Options
 
-You can tune leader election behavior using configuration options during `dcron.New`:
+You can tune leader election and failover behavior using configuration options during `dcron.New`:
 
 ```go
 scheduler, err := dcron.New(
     db,
     dcron.WithNamespace("orders-service"),
-    dcron.WithInstanceID("pod-orders-7f9b8-x2k9l"),
+    dcron.WithSessionStableConnection(),
     
-    // Polling interval for Standby nodes attempting to acquire leadership
+    // Polling interval for Standby nodes attempting to acquire leadership (with jitter)
     dcron.WithPollInterval(3 * time.Second),
     
-    // Leader verification check interval
-    dcron.WithHeartbeatInterval(1 * time.Second),
+    // Maximum time Stop waits for running jobs before cancelling
+    dcron.WithDrainTimeout(15 * time.Second),
 )
 ```
 
 | Option | Default | Purpose |
 | :--- | :--- | :--- |
-| `WithPollInterval` | `3s` | Determines maximum failover detection latency when a Leader node drops. |
-| `WithHeartbeatInterval` | `1s` | Frequency at which the active Leader confirms its advisory lock session status. |
-| `WithInstanceID` | Hostname / PID | Unique human-readable identifier for auditing and metrics tags. |
+| `WithNamespace` | `"default"` | Logical cluster name; derives the deterministic 64-bit advisory lock key. |
+| `WithPollInterval` | `5s` | Polling frequency (with ±20% jitter) at which Standby replicas attempt leadership acquisition. |
+| `WithDrainTimeout` | `30s` | Maximum grace period granted to running jobs during leadership demotion or graceful shutdown. |
+| `WithSessionStableConnection` | `false` | Asserts the database handle is direct or in session pooling mode (no transaction multiplexing). |

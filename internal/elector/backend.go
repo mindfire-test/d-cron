@@ -27,12 +27,12 @@ type Backend interface {
 	TryLock(ctx context.Context, key int64) (acquired bool, pid int, err error)
 	// HoldsLock reports whether THIS backend's connection currently holds key.
 	// It is a read-only pg_locks probe and must NOT acquire the lock:
-	// re-acquiring a re-entrant advisory lock masks a lost lock (SDS §3.5).
+	// re-acquiring a re-entrant advisory lock would mask a lost lock.
 	HoldsLock(ctx context.Context, key int64) (bool, error)
-	// Release frees the advisory lock for key (SDS §3.3). The boolean reports
+	// Release frees the advisory lock for key. The boolean reports
 	// whether the lock was actually held by this session: false means it had
 	// already been released server-side (e.g. backend exit), which the caller
-	// logs rather than treats as fatal (§3.6).
+	// logs rather than treats as fatal.
 	Release(ctx context.Context, key int64) (bool, error)
 	// Close closes the underlying dedicated connection.
 	Close() error
@@ -42,14 +42,14 @@ type stdBackend struct {
 	conn *sql.Conn
 }
 
-// NewStdBackend wraps conn as a dedicated-lock backend (issue #7, FR-104/FR-508).
+// NewStdBackend wraps conn as a dedicated-lock backend.
 // The reserved *sql.Conn is held for the entire leadership term and reduces
 // pool capacity by 1.
 func NewStdBackend(conn *sql.Conn) Backend {
 	return &stdBackend{conn: conn}
 }
 
-// TryLock implements Backend using non-blocking pg_try_advisory_lock (issue #7, FR-102).
+// TryLock implements Backend using non-blocking pg_try_advisory_lock.
 func (b *stdBackend) TryLock(ctx context.Context, key int64) (bool, int, error) {
 	var acquired bool
 	var pid int
@@ -60,7 +60,7 @@ func (b *stdBackend) TryLock(ctx context.Context, key int64) (bool, int, error) 
 	return acquired, pid, nil
 }
 
-// HoldsLock implements Backend using a read-only pg_locks query (issue #10, FR-114, C-07).
+// HoldsLock implements Backend using a read-only pg_locks query.
 // It verifies liveness by querying pg_locks filtered by objid and pg_backend_pid() without
 // ever re-calling pg_try_advisory_lock (which would mask lost locks due to re-entrancy).
 func (b *stdBackend) HoldsLock(ctx context.Context, key int64) (bool, error) {
@@ -72,9 +72,9 @@ func (b *stdBackend) HoldsLock(ctx context.Context, key int64) (bool, error) {
 	return holds, nil
 }
 
-// Release frees the advisory lock for key by executing SELECT pg_advisory_unlock($1) (issue #11, FR-107).
+// Release frees the advisory lock for key by executing SELECT pg_advisory_unlock($1).
 // The boolean reports whether the lock was actually held by this session: false means it had
-// already been released server-side (e.g. backend exit), which the caller logs rather than treats as fatal (§3.6).
+// already been released server-side (e.g. backend exit), which the caller logs rather than treats as fatal.
 func (b *stdBackend) Release(ctx context.Context, key int64) (bool, error) {
 	var released bool
 	err := b.conn.QueryRowContext(ctx, sqlRelease, key).Scan(&released)

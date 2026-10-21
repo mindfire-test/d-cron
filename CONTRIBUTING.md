@@ -7,12 +7,14 @@ Thank you for your interest in contributing to `d-cron`! This document provides 
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
+- [Project Structure](#project-structure)
 - [How to Contribute](#how-to-contribute)
 - [Pull Request Process](#pull-request-process)
 - [Coding Standards](#coding-standards)
 - [Testing](#testing)
 - [Reporting Bugs](#reporting-bugs)
 - [Suggesting Features](#suggesting-features)
+- [Questions?](#questions)
 
 ---
 
@@ -24,7 +26,7 @@ By participating in this project, you agree to abide by the [CODE_OF_CONDUCT.md]
 
 ## Getting Started
 
-1. Fork the repository on GitHub.
+1. Fork the repository on GitHub
 2. Clone your fork locally:
    ```bash
    git clone https://github.com/YOUR_USERNAME/d-cron.git
@@ -41,11 +43,11 @@ By participating in this project, you agree to abide by the [CODE_OF_CONDUCT.md]
 
 ### Prerequisites
 
-- **Go** (version 1.22 or higher)
+- **Go** (version 1.23 or higher)
 - **Git**
-- **Docker** (optional, required for running Testcontainers integration tests)
+- **Docker** (optional, required for PostgreSQL testcontainers integration tests)
 
-### Installation & Tools
+### Installation
 
 1. Install dependencies:
    ```bash
@@ -65,18 +67,16 @@ By participating in this project, you agree to abide by the [CODE_OF_CONDUCT.md]
    lefthook install
    ```
 
-4. Run unit tests:
+4. Verify formatting and linting:
    ```bash
-   go test ./test/... -count=1
+   gofumpt -l .
+   golangci-lint run
    ```
 
----
-
-## Testing & Pooler Safety Verification
-
-- **Unit Tests**: Run with `go test ./test/... -count=1`.
-- **Integration Tests**: Run with `go test -tags integration ./...` (requires Docker or setting `DCRON_TEST_DSN`).
-- **PgBouncer Pooler Safety Testing**: Any changes or regression suites touching connection stability, election gates, or advisory lock holding **MUST** use `testutil.NewPgBouncer(t, targetDSN, poolSize)` in **transaction pooling mode** to verify that pooler safety assertions (`WithSessionStableConnection`, `ErrSessionStabilityUnasserted`) correctly reject pooled connection hazards (`SRS C-01`).
+5. Run unit tests:
+   ```bash
+   go test -v -race ./...
+   ```
 
 ---
 
@@ -84,53 +84,243 @@ By participating in this project, you agree to abide by the [CODE_OF_CONDUCT.md]
 
 ```
 d-cron/
-├── dcron/                # Public Scheduler API, options, and job management
-├── internal/
-│   ├── elector/          # Leader election & PostgreSQL advisory lock coordination
-│   ├── clock/            # Min-heap scheduler clock & vixie cron parser
-│   ├── executor/         # Execution pipeline (panic recovery, timeout, retry)
-│   └── store/            # Opt-in history store & DDL migrations
-├── metrics/              # Prometheus metrics subpackage
-├── ui/                   # Embedded Web UI dashboard as http.Handler
-├── otel/                 # OpenTelemetry tracing subpackage
-├── examples/             # Minimal, pgx, and Kubernetes examples
-├── test/                 # Test packages (unit, integration, chaos)
-├── docs/                 # SRS and SDS specification documents
+├── dcron/                # Primary public Go library package (Scheduler, Job, Options)
+│   ├── dcron.go          # Constructor and lifecycle (Start, Stop)
+│   ├── options.go        # Functional options (WithNamespace, WithTimeout, etc.)
+│   ├── job.go            # Job registration and configuration definitions
+│   ├── loop.go           # Leader poll loop, dispatch, and idempotency key
+│   ├── context.go        # Context helpers (Epoch, IdempotencyKey, Fence)
+│   ├── leadership.go     # Leadership() accessor & health check
+│   ├── admin.go          # REST HTTP management API (Pause, Resume, Add, Delete)
+│   └── hooks.go          # Completion & failure notification webhooks
+├── internal/             # Internal core implementation packages
+│   ├── clock/            # Cron parser, schedule interfaces, min-heap timer
+│   ├── elector/          # Session advisory lock elector, state machine, gates
+│   ├── executor/         # Invocation boundary, recover(), timeout, backoff retry
+│   ├── store/            # Execution history store & idempotent SQL migrations
+│   └── tools/godoccheck/ # Godoc comment coverage verification tool
+├── metrics/              # Metrics seam & Prometheus adapter interfaces
+├── otel/                 # OpenTelemetry tracing adapter interfaces
+├── ui/                   # Embedded server-rendered dashboard UI
+├── examples/             # Ready-to-run integration examples
+│   ├── minimal/          # Minimal 10-line integration example
+│   ├── pgx/              # Native pgx driver connection pool example
+│   ├── prometheus-adapter/ # Prometheus metrics exporter example
+│   ├── with-dashboard/   # Router-mounted dashboard example
+│   └── kubernetes/       # 5-replica Kubernetes deployment manifest
+├── apps/
+│   └── docs/             # Docusaurus documentation website
+├── test/                 # Test suites
+│   ├── clock/            # Cron parser and schedule calculation tests
+│   ├── elector/          # Election state machine and safety gate unit tests
+│   ├── executor/         # Panic recovery, timeout, and backoff retry tests
+│   ├── scheduler/        # Scheduler integration and lifecycle tests
+│   ├── store/            # History persistence and migration tests
+│   ├── ui/               # Dashboard HTML template rendering tests
+│   └── integration/      # Real PostgreSQL testcontainers & failover suite
+├── .github/
+│   └── workflows/        # GitHub Actions CI/CD workflows
+├── .lefthook.yml         # Git hooks configuration (pre-commit, commit-msg, pre-push)
 ├── go.mod                # Go module definition
-└── LICENSE               # Apache-2.0 License
+├── go.sum                # Go module checksums
+├── LICENSE               # MIT License
+└── PROJECT_STATUS.txt    # Project status, architecture, and testing guide
 ```
+
+---
+
+## How to Contribute
+
+### Reporting Bugs
+
+If you find a bug, please create an issue using the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md). Include:
+
+- Clear description of the bug
+- Steps to reproduce
+- Expected vs actual behavior
+- Environment details (OS, Go version, PostgreSQL version)
+- Relevant log output
+
+### Suggesting Features
+
+Feature requests are welcome! Please use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md) and include:
+
+- Clear description of the proposed feature
+- Problem statement or use case
+- Proposed API design or solution
+- Consideration of backward compatibility
+
+### Contributing Code
+
+1. Create a new branch from `main`:
+   ```bash
+   git checkout main
+   git pull upstream main
+   git checkout -b feat/your-feature-name
+   ```
+
+2. Make your changes following the [coding standards](#coding-standards)
+
+3. Add or update tests covering your changes
+
+4. Verify all tests pass with the race detector enabled:
+   ```bash
+   go test -v -race ./...
+   ```
+
+5. Verify code formatting and linting:
+   ```bash
+   gofumpt -w .
+   golangci-lint run
+   ```
+
+6. Commit your changes using Conventional Commits:
+   ```bash
+   git add .
+   git commit -m "feat(scheduler): add dynamic job rescheduling"
+   ```
+
+7. Push to your fork:
+   ```bash
+   git push origin feat/your-feature-name
+   ```
+
+8. Open a Pull Request targeting `main` using the Pull Request template.
 
 ---
 
 ## Pull Request Process
 
-1. Create a feature branch off `development`:
-   ```bash
-   git checkout -b feat/your-feature-name
-   ```
-2. Follow **Conventional Commits** for commit messages (e.g. `feat(elector): ...`, `fix(clock): ...`, `test(scheduler): ...`).
-3. Ensure all linters and tests pass locally before submitting:
-   ```bash
-   golangci-lint run ./...
-   go test ./test/... -count=1
-   ```
-4. Push your branch to your fork and open a Pull Request targeting the `development` branch.
+1. Ensure the PR description clearly explains the changes and rationale.
+2. Link any related issues (e.g., "Closes #42").
+3. All automated CI checks must pass (`lint`, `cross-build`, `unit-tests`, `integration-tests`).
+4. Code must follow project standards and pass `gofumpt` formatting.
+5. All exported symbols must include descriptive godoc comments verified by `godoccheck`.
+6. At least one maintainer must review and approve the PR before merging.
+
+### PR Title Convention
+
+Use the [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+- `feat:` - New features
+- `fix:` - Bug fixes
+- `docs:` - Documentation changes
+- `refactor:` - Code refactoring
+- `test:` - Adding or updating tests
+- `chore:` - Maintenance tasks
 
 ---
 
 ## Coding Standards
 
-- **Formatting**: Run `gofumpt` on all Go source files.
-- **Errors**: Return typed, actionable errors from `dcron/errors.go`.
-- **Zero Credentials in Logs**: Never log database connection strings, credentials, or sensitive job payloads (`NFR-501`).
-- **Context Awareness**: Always propagate and respect `context.Context` cancellation.
+### Go Code Style
+
+- Follow [Effective Go](https://go.dev/doc/effective_go) guidelines.
+- Use `gofumpt` (strict gofmt) to format code:
+  ```bash
+  gofumpt -w .
+  ```
+- Use `gci` or `goimports` for import grouping and management.
+- Follow [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments).
+
+### Core Architectural Boundaries
+
+- **Zero Core External Dependencies**: The scheduler core (`dcron/` and `internal/`) must never import third-party metrics SDKs, distributed stores, or external frameworks. Standard library `database/sql` is the primary persistence seam.
+- **Panic Isolation**: All scheduled job invocations must be guarded by a deferred `recover()` boundary so a crashing job cannot terminate the host process.
+- **Context Cancellation**: Always propagate `context.Context` to job handlers, database queries, and coordination operations.
+- **Zero Credentials in Logs**: Never log database connection strings, passwords, or sensitive credentials.
+- **Exported Godoc**: Every exported type, function, method, and constant must have a clear doc comment starting with the symbol's name.
+
+### Commit Messages
+
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+**Types:**
+
+- `feat` - New feature
+- `fix` - Bug fix
+- `docs` - Documentation changes
+- `style` - Code style changes (formatting, etc.)
+- `refactor` - Code refactoring
+- `test` - Adding or updating tests
+- `chore` - Maintenance tasks
+
+**Example:**
+
+```
+feat(executor): add exponential backoff retry with jitter
+
+- Introduce Retry configuration with attempts, backoff, and jitter
+- Apply exponential backoff delay between retryable execution attempts
+- Add unit tests verifying retry exhaustion and jitter bounds
+
+Closes #19
+```
+
+---
+
+## Testing
+
+### Running Tests
+
+Run all unit tests with race detection:
+```bash
+go test -v -race ./...
+```
+
+Run tests for a specific package:
+```bash
+go test -v ./test/scheduler/...
+go test -v ./test/elector/...
+```
+
+Run real PostgreSQL integration tests (requires Docker or a live database):
+```bash
+go test -v -race -tags integration ./test/integration/...
+```
+
+### Writing Tests
+
+- Place test files in their corresponding package test directory under `test/`.
+- Use table-driven tests for comprehensive input/output coverage.
+- Test both success and failure error paths.
+- Ensure all concurrent tests run cleanly under the Go race detector (`-race`).
 
 ---
 
 ## Reporting Bugs
 
-If you find a bug, please create a GitHub issue using the [Bug Report Template](.github/ISSUE_TEMPLATE/bug_report.md). Include steps to reproduce, expected vs actual behavior, and environment details.
+Found a bug? Help us fix it:
+
+1. Search existing issues to ensure it hasn't already been reported.
+2. Open an issue using the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md).
+3. Include reproducible steps, error logs, and environment details.
+
+---
 
 ## Suggesting Features
 
-Feature requests are welcome! Please open an issue using the [Feature Request Template](.github/ISSUE_TEMPLATE/feature_request.md).
+Have an idea for `d-cron`? We'd love to hear it:
+
+1. Check existing feature requests and discussions.
+2. Open an issue using the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md).
+3. Clearly describe the problem and your proposed design.
+
+---
+
+## Questions?
+
+If you have questions about contributing or need guidance:
+
+- Open a discussion or issue on GitHub
+- Reach out to the maintainers
+
+Thank you for contributing to d-cron! 🚀

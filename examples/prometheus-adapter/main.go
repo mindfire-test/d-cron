@@ -1,11 +1,11 @@
-// Command prometheus-adapter demonstrates the app-side bridge from d-cron's
-// dependency-free metrics.Recorder seam to a real Prometheus registry
-// (SDS §11, issue #36 / FR-404).
+// Command prometheus-adapter demonstrates the application-side bridge from
+// d-cron's dependency-free metrics.Recorder seam to a Prometheus registry.
 //
-// The scheduler core never links client_golang (NFR-402): this module does,
-// so applications that do not use Prometheus pay nothing. Metric names are
-// taken from the exported metrics.Key* constants, keeping the contract stable
-// across releases; labels are `job` and (for the leader gauge) `instance`.
+// The scheduler core avoids external metrics dependencies, keeping the core
+// lightweight and allowing applications using Prometheus to hook in cleanly.
+// Metric names are taken from the exported metrics.Key* constants, keeping
+// the contract stable across releases; labels are `job` and (for the leader
+// gauge) `instance`.
 package main
 
 import (

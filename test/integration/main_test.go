@@ -1,9 +1,8 @@
 //go:build integration
 
-// Package integration runs d-cron against real PostgreSQL via testcontainers
-// (issue #28, NFR-204). It is a SEPARATE Go module so the heavyweight
-// testcontainers dependency never lands in the root go.mod that library
-// consumers download.
+// Package integration runs d-cron against real PostgreSQL via testcontainers.
+// It is a separate Go module so the heavyweight testcontainers dependency never
+// lands in the root go.mod that library consumers download.
 //
 // Run:
 //

@@ -15,12 +15,12 @@ type State int
 
 const (
 	// StateUnknown is the zero value, before any Acquire has run (and after a
-	// transient database error, see SDS §3.5). It is a real state, not a placeholder.
+	// transient database error). It is a real state, not a placeholder.
 	StateUnknown State = iota
 	StateStandby
 	// StateDemoting is the transient leader-on-the-way-down state: the clock is
 	// off and in-flight work is being drained or aborted before the elector
-	// settles back to StateStandby. See SDS §3.5.
+	// settles back to StateStandby.
 	StateDemoting
 	StateLeader
 )
@@ -56,17 +56,17 @@ var (
 )
 
 // SingleConnectionPoolError is the typed form returned by PoolCapacity when
-// maxOpen is 1 (issue #26). It carries the offending MaxOpenConnections value
+// maxOpen is 1. It carries the offending MaxOpenConnections value
 // so operators and logs see the concrete misconfiguration rather than parsing
 // a message. It implements errors.Is against ErrSingleConnectionPool.
 type SingleConnectionPoolError struct{ MaxOpen int }
 
-// Error implements error, naming the affected configuration (issue #26).
+// Error implements error, naming the affected configuration.
 func (e *SingleConnectionPoolError) Error() string {
 	return fmt.Sprintf("elector: database MaxOpenConnections is %d; advisory-lock election requires at least two connections", e.MaxOpen)
 }
 
-// Is allows errors.Is(err, ErrSingleConnectionPool) to match (issue #26).
+// Is allows errors.Is(err, ErrSingleConnectionPool) to match.
 func (e *SingleConnectionPoolError) Is(target error) bool {
 	return target == ErrSingleConnectionPool
 }
@@ -211,7 +211,7 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 	}
 }
 
-// demote transitions LEADER -> DEMOTING and emits transition event (issue #8, FR-105).
+// demote transitions LEADER -> DEMOTING and emits a transition event.
 func (e *Elector) demote(reason string) {
 	if e.state != StateLeader {
 		return
@@ -237,7 +237,7 @@ func (e *Elector) FinalizeDemotion() {
 }
 
 // Release frees the advisory lock. It is a no-op for standbys and may be
-// called at most once by the former leader on graceful shutdown (SDS §3.6). The
+// called at most once by the former leader on graceful shutdown. The
 // connection itself is closed separately by Close.
 func (e *Elector) Release(ctx context.Context) error {
 	e.mu.Lock()

@@ -80,16 +80,17 @@ This guarantees that:
 
 ---
 
-## ⚙️ Custom Lock Backend Interface
+## ⚙️ Elector Backend Interface
 
-`d-cron` defines a clean interface for advisory lock operations, allowing embedders to swap PostgreSQL for alternative backends (such as Redis, MySQL, or deterministic test fakes):
+`d-cron` defines a clean interface for advisory lock operations behind the elector (`internal/elector.Backend`), allowing the leadership state machine to be exercised in tests with deterministic fakes without requiring live PostgreSQL:
 
 ```go
-type LockBackend interface {
-    TryLock(ctx context.Context, key string) (bool, error)
-    HoldsLock(ctx context.Context, key string) (bool, error)
-    Release(ctx context.Context, key string) error
+type Backend interface {
+    TryLock(ctx context.Context, key int64) (acquired bool, pid int, err error)
+    HoldsLock(ctx context.Context, key int64) (bool, error)
+    Release(ctx context.Context, key int64) (bool, error)
+    Close() error
 }
 ```
 
-By default, `d-cron` passes a `*sql.DB` to instantiate the Postgres session advisory lock backend automatically.
+The production implementation (`NewStdBackend`) wraps a dedicated session-stable `*sql.Conn` that holds the 64-bit advisory lock for the entire leadership term.

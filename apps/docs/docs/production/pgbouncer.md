@@ -23,21 +23,19 @@ PgBouncer is commonly deployed in **Transaction Pooling Mode** (`pool_mode = tra
 
 ## 🛠️ Recommended Solutions
 
-### Solution 1: Dedicated Connection for `d-cron` (Recommended)
+### Solution 1: Dedicated Direct Lock DSN (Recommended)
 
-The cleanest production pattern is to bypass transaction-mode PgBouncer for `d-cron`'s leader lock connection while using PgBouncer for your normal application queries:
+The cleanest production pattern is to let normal application queries flow through PgBouncer while configuring `d-cron` to open an independent, dedicated connection directly to PostgreSQL for the advisory lock:
 
 ```go
-// 1. App queries use PgBouncer (Transaction Pool)
-appDB, _ := sql.Open("pgx", "postgres://user:pass@pgbouncer:6432/myapp_db?sslmode=disable")
+// 1. Normal application queries use PgBouncer in transaction mode
+appDB, _ := sql.Open("postgres", "postgres://user:pass@pgbouncer:6432/myapp_db?sslmode=disable")
 
-// 2. d-cron leader lock uses Direct PostgreSQL Connection (Direct Port 5432)
-cronLockDB, _ := sql.Open("pgx", "postgres://user:pass@postgres-direct:5432/myapp_db?sslmode=disable")
-
-// Initialize d-cron with dedicated direct connection
+// 2. d-cron leader lock connects directly to PostgreSQL (port 5432)
 scheduler, _ := dcron.New(
-    cronLockDB,
+    appDB,
     dcron.WithNamespace("orders-service"),
+    dcron.WithDedicatedLockDSN("postgres://user:pass@postgres-direct:5432/myapp_db?sslmode=disable"),
 )
 ```
 
@@ -61,8 +59,11 @@ myapp_cron_db = host=postgres-db port=5432 dbname=myapp_db pool_mode=session
 **Go Application Setup:**
 
 ```go
-cronDB, _ := sql.Open("pgx", "postgres://user:pass@pgbouncer:6432/myapp_cron_db?sslmode=disable")
-scheduler, _ := dcron.New(cronDB)
+cronDB, _ := sql.Open("postgres", "postgres://user:pass@pgbouncer:6432/myapp_cron_db?sslmode=disable")
+scheduler, _ := dcron.New(cronDB,
+    dcron.WithNamespace("orders-service"),
+    dcron.WithSessionStableConnection(),
+)
 ```
 
 ---

@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ main, development ]
   schedule:
-    # Run govulncheck weekly on Mondays at 00:00 UTC (SRS NFR-504)
+    # Run govulncheck weekly on Mondays at 00:00 UTC
     - cron: '0 0 * * 1'
 
 permissions:
@@ -46,7 +46,7 @@ jobs:
           args: --timeout=5m
 
   cross-build:
-    name: Cross-Compilation Matrix (NFR-404)
+    name: Cross-Compilation Matrix
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -95,7 +95,7 @@ jobs:
           retention-days: 7
 
   integration-tests:
-    name: Postgres Integration Matrix (SRS AC-10)
+    name: Postgres Integration Matrix
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -117,7 +117,7 @@ jobs:
           go test -v -race -tags integration -timeout 15m .
 
   vulnerability-scan:
-    name: Scheduled Vulnerability Scan (NFR-504)
+    name: Scheduled Vulnerability Scan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

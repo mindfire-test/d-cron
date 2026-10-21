@@ -1,5 +1,5 @@
 // Command kubernetes demonstrates deploying d-cron inside a 5-replica
-// Kubernetes Deployment (AC-01..AC-03): exactly-once firing under normal
+// Kubernetes Deployment: exactly-once firing under normal
 // operation, graceful leader failover, and split-brain containment.
 //
 // Every replica runs this same binary. Exactly one becomes leader; the other

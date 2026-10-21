@@ -31,10 +31,10 @@ func TestGates_RefusesUnsafeStart(t *testing.T) {
 	}
 }
 
-// TestLeaderFailover_PromotesExactlyOneStandby covers the core AC-02 shape:
+// TestLeaderFailover_PromotesExactlyOneStandby covers leader failover:
 // two schedulers race, exactly one becomes leader; killing the leader's
-// connection promotes the survivor exactly once. ROLE-AGNOSTIC: either
-// replica may win the initial race.
+// connection promotes the survivor exactly once. Either replica may win
+// the initial race.
 func TestLeaderFailover_PromotesExactlyOneStandby(t *testing.T) {
 	ctx := context.Background()
 	ns := "it-failover"

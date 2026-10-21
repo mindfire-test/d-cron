@@ -47,7 +47,7 @@ func SessionStableFromPIDs(p1, p2 int) bool {
 // ProbeSessionStable takes two pg_backend_pid() samples on q and reports
 // whether they are equal (session-stable). A mismatch, or an error, means q is
 // backed by a transaction-mode pooler (or is otherwise unsafe for advisory
-// locks) and the caller must refuse to start (SDS §3.4).
+// locks) and the caller must refuse to start.
 func ProbeSessionStable(ctx context.Context, q Querier) (bool, error) {
 	var p1, p2 int
 	if err := q.QueryRowContext(ctx, sqlPID).Scan(&p1); err != nil {
@@ -59,12 +59,12 @@ func ProbeSessionStable(ctx context.Context, q Querier) (bool, error) {
 	return SessionStableFromPIDs(p1, p2), nil
 }
 
-// PoolCapacity reports whether maxOpen is safe for advisory-lock election (issue #13, FR-112).
+// PoolCapacity reports whether maxOpen is safe for advisory-lock election.
 // A single-connection pool (MaxOpenConns == 1) starves both the lock and the session-stability probe,
 // deadlocking the application.
 func PoolCapacity(maxOpen int) error {
 	if maxOpen == 1 {
-		return &SingleConnectionPoolError{MaxOpen: maxOpen} // issue #13
+		return &SingleConnectionPoolError{MaxOpen: maxOpen}
 	}
 	return nil
 }
@@ -99,10 +99,10 @@ func ProbeKeepalive(ctx context.Context, q Querier) (idle, connCheck int, err er
 	return idle, connCheck, nil
 }
 
-// WarnKeepalive probes the keepalive GUCs (issue #14, FR-113) and, when both are 0, logs a loud
+// WarnKeepalive probes the keepalive GUCs and, when both are 0, logs a loud
 // WARN that a dead or partitioned leader will hold the lock for hours with no
-// replica promoted (SDS §12 row 3). It returns true when the configuration is
-// unsafe. A probe error is logged at Debug and treated as unknown, never fatal.
+// replica promoted. It returns true when the configuration is unsafe.
+// A probe error is logged at Debug and treated as unknown, never fatal.
 func WarnKeepalive(ctx context.Context, q Querier, log *slog.Logger) bool {
 	if log == nil {
 		log = slog.Default()
@@ -113,7 +113,7 @@ func WarnKeepalive(ctx context.Context, q Querier, log *slog.Logger) bool {
 		return false
 	}
 	if KeepaliveUnsafe(idle, connCheck) {
-		log.Warn("elector: TCP keepalives are disabled on the lock connection; a dead or partitioned leader will hold the lock for hours and NO replica will be promoted (SDS §12 row 3). Set tcp_keepalives_idle (recommended 60-120s) and client_connection_check_interval, or supply a dedicated connection that sets them.",
+		log.Warn("elector: TCP keepalives are disabled on the lock connection; a dead or partitioned leader will hold the lock for hours and NO replica will be promoted. Set tcp_keepalives_idle (recommended 60-120s) and client_connection_check_interval, or supply a dedicated connection that sets them.",
 			"tcp_keepalives_idle", idle, "client_connection_check_interval", connCheck)
 		return true
 	}

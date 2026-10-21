@@ -1,11 +1,11 @@
-// Command with-dashboard demonstrates the Phase 2 observability integration:
+// Command with-dashboard demonstrates observability integration:
 // mounting ui.Handler on an application router and wiring a Prometheus-style
 // recorder into dcron.WithMetrics.
 //
-// The scheduler core never links a metrics SDK (SDS NFR-402): the Recorder
-// below is the app-side adapter, and the dashboard is served by the separate
-// ui package. Authentication for /internal/dcron is deliberately NOT included
-// (FR-408) — protect it in your own middleware.
+// The scheduler core avoids external metrics dependencies: the Recorder
+// below is the application-side adapter, and the dashboard is served by the separate
+// ui package. Authentication for /internal/dcron is intentionally left to the host
+// application — protect it using your own middleware.
 package main
 
 import (

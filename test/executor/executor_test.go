@@ -182,7 +182,7 @@ func TestRunPanicIsTypedAndCarriesStack(t *testing.T) {
 }
 
 // TestRunTimeoutIsTyped asserts that a job which exceeded its per-attempt
-// deadline surfaces as a *executor.TimeoutError (issue #26): it is errors.As-able,
+// deadline surfaces as a *executor.TimeoutError: it is errors.As-able,
 // names the job, and still errors.Is(context.DeadlineExceeded) for callers
 // that only know about the standard wrapping contract.
 func TestRunTimeoutIsTyped(t *testing.T) {
@@ -208,7 +208,7 @@ func TestRunTimeoutIsTyped(t *testing.T) {
 }
 
 // TestRunPanicNamesJob asserts a recovered panic carries the job name in both
-// the typed executor.PanicError.Job field and the rendered Error() string (issue #26).
+// the typed executor.PanicError.Job field and the rendered Error() string.
 func TestRunPanicNamesJob(t *testing.T) {
 	t.Parallel()
 	res := executor.Run(context.Background(), "billing", func(context.Context) error { panic("oom") }, executor.Retry{Attempts: 1})

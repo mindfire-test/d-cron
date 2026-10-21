@@ -23,7 +23,7 @@ func newInstanceID() string {
 //
 // Options are applied in order on top of the defaults and are passed to New.
 // All options have working defaults except the session-stability assertion,
-// which defaults to an automatic probe (SDS §3.4).
+// which defaults to an automatic database connection probe.
 type Option func(*options)
 
 type options struct {

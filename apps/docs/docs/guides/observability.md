@@ -1,41 +1,87 @@
 ---
 id: observability
-title: Prometheus Metrics & Tracing
+title: Observability (Prometheus & OpenTelemetry)
 sidebar_label: Observability
 ---
 
 # 📊 Observability (Prometheus & OpenTelemetry)
 
-`d-cron` provides first-class observability extensions for production telemetry, Grafana dashboards, and distributed tracing.
+`d-cron` provides a dependency-free observability architecture. The core scheduler never imports heavy metrics SDKs, maintaining the zero-unnecessary-dependencies guarantee.
+
+Instead, the core emits observability signals through the clean `metrics.Recorder` interface, which your application wires into your own Prometheus, StatsD, or OpenTelemetry registry.
 
 ---
 
 ## 📈 Prometheus Metrics Integration
 
-Import the `github.com/mindfiredigital/d-cron/metrics` package to attach Prometheus collectors to standard Go HTTP handlers:
+Implement `metrics.Recorder` (or embed `metrics.Noop` and override what you need) to expose Prometheus metrics:
 
 ```go
 package main
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
+	"time"
 
-	"github.com/mindfiredigital/d-cron/dcron"
-	"github.com/mindfiredigital/d-cron/metrics"
+	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfire-test/d-cron/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func main() {
-	// 1. Create Prometheus Exporter
-	promExporter := metrics.NewPrometheusExporter("dcron")
+type prometheusRecorder struct {
+	metrics.Noop
+	isLeader   *prometheus.GaugeVec
+	executions *prometheus.CounterVec
+	duration   *prometheus.HistogramVec
+}
 
-	// 2. Attach Exporter to Scheduler
+func newPrometheusRecorder(reg prometheus.Registerer) *prometheusRecorder {
+	r := &prometheusRecorder{
+		isLeader: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: metrics.KeyIsLeader,
+			Help: "1 if this node holds leadership, 0 if standby",
+		}, []string{"instance"}),
+		executions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: metrics.KeyJobExecutions,
+			Help: "Total job executions by status",
+		}, []string{"job", "status"}),
+		duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: metrics.KeyJobDuration,
+			Help: "Job execution duration in seconds",
+		}, []string{"job"}),
+	}
+	reg.MustRegister(r.isLeader, r.executions, r.duration)
+	return r
+}
+
+func (r *prometheusRecorder) SetLeader(instance string, isLeader bool) {
+	val := 0.0
+	if isLeader {
+		val = 1.0
+	}
+	r.isLeader.WithLabelValues(instance).Set(val)
+}
+
+func (r *prometheusRecorder) JobFinished(job string, outcome metrics.Outcome, dur time.Duration, success bool) {
+	r.executions.WithLabelValues(job, outcome.String()).Inc()
+	r.duration.WithLabelValues(job).Observe(dur.Seconds())
+}
+
+func main() {
+	db, _ := sql.Open("postgres", "postgres://user:pass@localhost:5432/myapp?sslmode=disable")
+
+	promRec := newPrometheusRecorder(prometheus.DefaultRegisterer)
+
 	scheduler, _ := dcron.New(
 		db,
-		dcron.WithMetrics(promExporter),
+		dcron.WithNamespace("orders-service"),
+		dcron.WithSessionStableConnection(),
+		dcron.WithMetrics(promRec),
 	)
 
-	// 3. Expose /metrics endpoint
 	http.Handle("/metrics", promhttp.Handler())
 	go http.ListenAndServe(":9090", nil)
 
@@ -43,36 +89,46 @@ func main() {
 }
 ```
 
-### Exported Prometheus Metrics
+---
 
-| Metric Name | Type | Description | Labels |
-| :--- | :--- | :--- | :--- |
-| `dcron_is_leader` | Gauge | `1` if this node is active leader, `0` if standby | `instance_id`, `namespace` |
-| `dcron_leader_epoch` | Gauge | Current monotonic leader election epoch counter | `instance_id`, `namespace` |
-| `dcron_job_executions_total` | Counter | Total number of job execution attempts | `job_name`, `status` (`success`, `failed`, `skipped`) |
-| `dcron_job_duration_seconds` | Histogram | Execution latency distribution in seconds | `job_name` |
-| `dcron_job_panics_total` | Counter | Total panics caught during job execution | `job_name` |
+## 🔔 Webhook Alerts on Job Outcomes
+
+`d-cron` includes a built-in `WebhookHook` to dispatch JSON POST payloads to Slack, Discord, or monitoring alerts:
+
+```go
+scheduler, _ := dcron.New(
+    db,
+    dcron.WithHooks(&dcron.WebhookHook{
+        URL:     "https://alerting.internal/api/v1/dcron-events",
+        Timeout: 5 * time.Second,
+        Headers: map[string]string{
+            "Authorization": "Bearer alert-key",
+        },
+    }),
+)
+```
+
+**Webhook JSON Payload Schema:**
+```json
+{
+  "job": "billing-settlement",
+  "outcome": "failed",
+  "attempts": 3,
+  "duration_ms": 1520,
+  "error": "database connection timeout",
+  "time": "2026-10-21T18:00:00Z"
+}
+```
 
 ---
 
 ## 🔍 OpenTelemetry (OTel) Distributed Tracing
 
-Trace job runs across your microservice boundary using the OTel tracer provider:
+For distributed tracing across microservice boundaries, implement the `otel.Tracer` interface:
 
 ```go
-import (
-	"github.com/mindfiredigital/d-cron/otel"
-)
-
-// Attach OTel Tracer
-scheduler, _ := dcron.New(
-	db,
-	dcron.WithTracer(otel.NewTracer("d-cron")),
-)
+type Tracer interface {
+    StartSpan(ctx context.Context, jobName string, scheduledAt time.Time, attempt int, epoch int64) (context.Context, func(outcome string, err error))
+}
 ```
-
-Every job invocation creates an OpenTelemetry span containing:
-- `job.name`: String identifier of the job.
-- `job.schedule`: Cron expression string.
-- `leader.epoch`: Monotonic epoch token.
-- `instance.id`: Executing pod ID.
+Emitted spans capture `job.name`, `attempt`, and the `leader.epoch` fencing token.

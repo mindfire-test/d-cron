@@ -11,10 +11,10 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://mindfiredigital.github.io',
+  url: 'https://mindfire-test.github.io',
   baseUrl: '/d-cron/',
 
-  organizationName: 'mindfiredigital',
+  organizationName: 'mindfire-test',
   projectName: 'd-cron',
 
   onBrokenLinks: 'warn',

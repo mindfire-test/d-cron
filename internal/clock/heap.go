@@ -12,8 +12,8 @@ type Job struct {
 	Sched  Schedule
 }
 
-// Queue is a min-heap of pending jobs ordered by FireAt (issue #17, FR-207).
-// Only the leader runs this min-heap clock loop (FR-207); standbys run none.
+// Queue is a min-heap of pending jobs ordered by FireAt.
+// Only the leader runs this min-heap clock loop; standby replicas do not.
 type Queue []*Job
 
 // Len, Less, Swap implement heap.Interface.

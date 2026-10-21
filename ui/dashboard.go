@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-// Overview is the point-in-time scheduler state the dashboard renders (issue
-// #38, FR-406). The host application fills it from its dcron.Scheduler —
-// typically via Leadership, Key, InstanceID, and Jobs — so this package stays
-// decoupled from (and optional to) the scheduler core.
+// Overview is the point-in-time scheduler state the dashboard renders.
+// The host application fills it from its dcron.Scheduler — typically via
+// Leadership, Key, InstanceID, and Jobs — so this package stays decoupled
+// from (and optional to) the scheduler core.
 type Overview struct {
 	Namespace  string
 	InstanceID string
 	LockKey    int64
 	// Leadership is one of "leader", "standby", "unknown".
 	Leadership string
-	// HistoryEnabled and Schema describe the opt-in history store (#34).
+	// HistoryEnabled and Schema describe the opt-in history store.
 	HistoryEnabled bool
 	Schema         string
 	// Jobs is the registered-jobs snapshot (dcron.Scheduler.Jobs).
@@ -57,14 +57,14 @@ type page struct {
 // when history is disabled; the dashboard then renders a disabled notice.
 type HistoryFunc func(ctx context.Context) []HistoryRow
 
-// Handler returns a read-only, server-rendered dashboard (issue #38, FR-405).
+// Handler returns a read-only, server-rendered dashboard http.Handler.
 // Mount it at any path with the standard library mux or any router:
 //
 //	http.Handle("/internal/dcron/", ui.Handler(overview, recent))
 //
-// The page self-refreshes via a meta tag: no JavaScript, no CDN, no build step
-// (FR-407). It performs NO authentication or authorization — protecting the
-// endpoint is entirely the host application's responsibility (FR-408).
+// The page self-refreshes via a meta tag, requiring no JavaScript, no CDN,
+// and no build step. It performs NO authentication or authorization —
+// protecting the endpoint is entirely the host application's responsibility.
 //
 // overview must be non-nil; recent may be nil. A panic in either callback is
 // not recovered here: they run on the caller's own scheduler primitives.

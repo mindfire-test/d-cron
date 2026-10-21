@@ -12,7 +12,7 @@ import (
 //
 // Cancellation is NOT owned by the group: each Go call receives the context the
 // job runs under, so the scheduler can cancel on shutdown (runCtx) and on
-// demotion (termCtx) separately (FR-307). Wait only waits, up to a deadline.
+// demotion (termCtx) separately. Wait only waits, up to a deadline.
 type Group struct {
 	wg sync.WaitGroup
 }
@@ -24,7 +24,7 @@ func NewGroup() *Group {
 
 // Go runs fn under ctx, retrying per retry. The returned outcome is logged on
 // failure, including the recovered-panic stack when applicable. The call does
-// not block. ctx must carry shutdown and demotion cancellation (SDS §5.3).
+// not block. ctx must carry shutdown and demotion cancellation.
 // onComplete, if non-nil, is invoked with the final Result on the caller's
 // goroutine so the scheduler can update job status, fire hooks, and record
 // metrics without coupling the executor to those concerns.

@@ -4,10 +4,10 @@
 //
 //	postgres://user:pass@localhost:5432/db?sslmode=disable
 //
-// The session-stability assertion (dcron.WithSessionStableConnection) is the
-// one mandatory option (issue #12): d-cron refuses to start without it or a
+// The session-stability assertion (dcron.WithSessionStableConnection) is a
+// required safety option: d-cron requires an explicit confirmation or a
 // dedicated lock connection, because a transaction-mode pooler silently breaks
-// advisory-lock semantics.
+// PostgreSQL session-level advisory-lock semantics.
 package main
 
 import (

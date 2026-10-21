@@ -1,7 +1,7 @@
-// Package otel provides OpenTelemetry integration adapters for d-cron job executions (issue #47, FR-410).
+// Package otel provides OpenTelemetry integration adapters for d-cron job executions.
 //
 // The package is isolated from core d-cron so applications that do not use OTel
-// do not link OpenTelemetry dependencies (NFR-402).
+// do not link OpenTelemetry dependencies into their binaries.
 package otel
 
 import (
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Tracer defines the interface for tracing job executions (issue #47, FR-410).
+// Tracer defines the interface for tracing job executions.
 type Tracer interface {
 	StartSpan(ctx context.Context, jobName string, scheduledAt time.Time, attempt int, epoch int64) (context.Context, func(outcome string, err error))
 }

@@ -1,36 +1,61 @@
 ---
 id: execution-safety
-title: Execution Safety & Panic Recovery
+title: Execution Safety, Panic Recovery & Retries
 sidebar_label: Execution Safety
 ---
 
-# 🛡️ Execution Safety & Panic Recovery
+# 🛡️ Execution Safety, Panic Recovery & Retries
 
-Production background job engines must be resilient against runtime panics, unhandled exceptions, and context cancellations. `d-cron` provides built-in safety mechanics to prevent crash cascading.
+Production background job engines must be resilient against runtime panics, unhandled errors, and external timeouts. `d-cron` provides built-in safety mechanics to prevent crash cascading and ensure reliable task execution.
 
 ---
 
 ## ⚡ Automatic Panic Recovery
 
-By default, every job routine dispatched by `d-cron` is wrapped in an automatic `recover()` middleware block.
+Every job routine dispatched by `d-cron` is isolated in its own goroutine wrapped with an automatic `recover()` block.
 
-If a job handler triggers a panic (e.g. nil pointer dereference or slice index out of range):
+If a job handler panics (e.g. nil pointer dereference or index out of range):
 
-1. **Panic Caught**: The panic value is intercepted immediately.
-2. **Stack Trace Logged**: A full structured stack trace is logged via `log/slog` containing job name, instance ID, and error details.
-3. **Metrics Incremented**: The `dcron_job_panics_total` Prometheus counter is incremented.
-4. **App Resiliency**: The main application and scheduler clock continue operating without interruption.
+1. **Panic Caught**: The panic is intercepted immediately without terminating the process.
+2. **Stack Trace Logged**: A full structured stack trace is logged via `log/slog` with job name and instance ID.
+3. **Metrics Emitted**: Emits `metrics.OutcomePanicked` to `JobFinished` on the configured `metrics.Recorder`.
+4. **Hooks Notified**: Terminal hooks receive the panic value and stack bytes for external alerting.
+5. **Scheduler Continues**: The leader election coordinator and scheduling clock continue operating without interruption.
 
-### Custom Panic Handler
+### Alerting on Panics via Notification Hooks
 
-You can supply a custom panic handling callback to forward panics to error monitoring services like Sentry, Bugsnag, or Datadog:
+Register notification hooks using `dcron.WithHooks`:
 
 ```go
+// Custom alerting hook (e.g. Sentry / Datadog)
+alertHook := dcron.HookFunc(func(ctx context.Context, res executor.Result) error {
+    if res.Outcome == metrics.OutcomePanicked {
+        log.Printf("ALERT: Job %s panicked: %v\nStack:\n%s", res.Name, res.PanicValue, string(res.Stack))
+    }
+    return nil
+})
+
 scheduler, err := dcron.New(
     db,
-    dcron.WithPanicHandler(func(ctx context.Context, jobName string, err interface{}, stack []byte) {
-        // Forward panic to Sentry / Datadog
-        sentry.CaptureException(fmt.Errorf("panic in job %s: %v\n%s", jobName, err, string(stack)))
+    dcron.WithHooks(alertHook),
+)
+```
+
+---
+
+## 🔁 Exponential Backoff & Jitter Retries
+
+Transient errors (e.g. database deadlocks, network timeouts) can be retried automatically using `dcron.WithRetry`:
+
+```go
+scheduler.Add("charge-pending-subscriptions", "0 6 * * *", chargeFn,
+    dcron.WithRetry(dcron.Retry{
+        Attempts:   3,                 // Attempt up to 3 times
+        Backoff:    500 * time.Millisecond, // Initial delay
+        Factor:     2.0,               // Double delay each retry (500ms, 1s, 2s)
+        MaxBackoff: 10 * time.Second,  // Cap maximum backoff delay
+        Jitter:     true,              // Randomize delay to prevent synchronized retry spikes
+        Timeout:    30 * time.Second,  // Timeout for each individual attempt
     }),
 )
 ```
@@ -39,12 +64,12 @@ scheduler, err := dcron.New(
 
 ## ⏱️ Timeout Management & Context Cancellation
 
-Always wrap long-running job logic in deadline-aware contexts. `d-cron` allows configuring per-job timeouts using `dcron.JobOptions`:
+Wrap long-running jobs with explicit deadlines using `dcron.WithTimeout`:
 
 ```go
-scheduler.AddWithOptions("heavy-data-export", "0 3 * * *", 
+scheduler.Add("heavy-data-export", "0 3 * * *", 
     func(ctx context.Context) error {
-        // ctx will automatically be cancelled after 15 minutes
+        // ctx will be cancelled automatically after 15 minutes
         req, err := http.NewRequestWithContext(ctx, "POST", "https://api.internal/export", nil)
         if err != nil {
             return err
@@ -52,13 +77,20 @@ scheduler.AddWithOptions("heavy-data-export", "0 3 * * *",
         _, err = http.DefaultClient.Do(req)
         return err
     },
-    dcron.JobOptions{
-        Timeout: 15 * time.Minute,
-    },
+    dcron.WithTimeout(15 * time.Minute),
 )
 ```
 
 When a job exceeds its configured timeout:
 - `ctx.Done()` is closed with `context.DeadlineExceeded`.
-- Long-running HTTP requests, database transactions, or external RPCs associated with `ctx` cancel immediately.
-- The job status in history is logged as `TIMED_OUT`.
+- In-flight database queries or HTTP requests carrying `ctx` abort immediately.
+- Outcome `OutcomeTimedOut` is recorded in metrics and execution history.
+
+---
+
+## 🛑 Graceful Draining on Shutdown
+
+When `scheduler.Stop(ctx)` is called (e.g. on `SIGTERM`):
+1. The leader releases the advisory lock cleanly.
+2. In-flight jobs are allowed to complete up to `WithDrainTimeout(d)` (default: 30 seconds).
+3. If jobs exceed the drain timeout, their contexts are cancelled.

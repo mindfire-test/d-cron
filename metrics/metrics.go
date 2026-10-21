@@ -1,20 +1,20 @@
 // Package metrics exposes observability counters and gauges for scheduler and
-// job behaviour (SDS §11, issue #36).
+// job behaviour.
 //
 // It lives in its own package so applications that do not use it do not link
-// any metrics SDK (SDS NFR-402) — the core scheduler never imports this
-// package. Instead, the core emits metrics through the narrow Recorder
-// interface below, which an application wires in with dcron.WithMetrics. A
-// Prometheus adapter can be built on top of Recorder with the Prometheus
-// client library of the application's choosing; this package itself is
-// dependency-free so the "no new infrastructure" pitch holds.
+// any metrics SDK — the core scheduler never imports this package.
+// Instead, the core emits metrics through the narrow Recorder interface below,
+// which an application wires in with dcron.WithMetrics. A Prometheus adapter
+// can be built on top of Recorder with the Prometheus client library of the
+// application's choosing; this package itself is dependency-free so the
+// "no new infrastructure" guarantee holds.
 package metrics
 
 import "time"
 
-// Keys are the documented metric names (SDS §11, issue #36). They are exposed
-// here so a Prometheus adapter (or any external recorder) maps them to its own
-// registry with a stable contract.
+// Keys are the standard metric names. They are exposed here so a Prometheus
+// adapter (or any external recorder) maps them to its own registry with a
+// stable contract.
 const (
 	KeyIsLeader          = "dcron_is_leader"
 	KeyLeaderTransitions = "dcron_leader_transitions_total"
@@ -62,7 +62,7 @@ func (o Outcome) String() string {
 
 // Recorder is the seam through which the core emits observability signals. An
 // application supplies a Recorder via dcron.WithMetrics; the implementation
-// reports into whatever registry the app owns (SDS §11, issue #36 / FR-404).
+// reports into whatever registry the app owns.
 // Implementations must be safe for concurrent use.
 type Recorder interface {
 	// SetLeader records a gauge flip: isLeader is 1 when this replica holds

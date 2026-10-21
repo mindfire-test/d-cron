@@ -18,11 +18,12 @@ sidebar_label: pgx/v5 Setup
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfire-test/d-cron/dcron"
 )
 
 func main() {
@@ -42,6 +43,7 @@ func main() {
 	scheduler, err := dcron.New(
 		db,
 		dcron.WithNamespace("my-service"),
+		dcron.WithSessionStableConnection(),
 	)
 	if err != nil {
 		log.Fatalf("failed to init scheduler: %v", err)
@@ -55,18 +57,22 @@ func main() {
 
 ## ⚡ Setup with `lib/pq`
 
-If your legacy codebase uses `github.com/lib/pq`:
+If your codebase uses `github.com/lib/pq`:
 
 ```go
 import (
+	"context"
 	"database/sql"
 	_ "github.com/lib/pq"
-	"github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfire-test/d-cron/dcron"
 )
 
 func main() {
-	db, err := sql.Open("postgres", "user=postgres dbname=myapp_db sslmode=disable")
-	scheduler, err := dcron.New(db)
+	db, err := sql.Open("postgres", "postgres://postgres:postgres@localhost:5432/myapp_db?sslmode=disable")
+	if err != nil {
+		log.Fatal(err)
+	}
+	scheduler, err := dcron.New(db, dcron.WithSessionStableConnection())
 }
 ```
 
