@@ -35,17 +35,7 @@ d-cron is designed for:
 
 ## Quick Start
 
-### 1. Installation
-
-Install d-cron into your Go project using `go get`:
-
-```bash
-go get github.com/mindfire-test/d-cron
-```
-
-### 2. Complete Working Example
-
-Here is a complete, runnable Go application that connects to PostgreSQL, creates a scheduler, registers a cron job, and handles graceful shutdown:
+A complete, runnable Go application connecting to PostgreSQL, initializing d-cron, and registering a distributed cron job:
 
 ```go
 package main
@@ -115,27 +105,7 @@ func main() {
 }
 ```
 
-### 3. Cron Expression Syntax
-
-d-cron supports standard 5-field cron syntax, optional 6-field second precision, macros, and timezone overrides:
-
-| Expression | Schedule | Description |
-| :--- | :--- | :--- |
-| `* * * * *` | Every minute | High-frequency polling tasks |
-| `0 * * * *` | Every hour at :00 | Hourly rollups and metrics aggregation |
-| `0 0 * * *` | Midnight every day | Daily settlement, report generation |
-| `0 2 * * *` | 2:00 AM daily | Nightly backups, vacuuming, and cleanup |
-| `0 9 * * 1-5` | 9:00 AM Mon-Fri | Weekday notifications |
-| `0 0 1 * *` | 1st of every month | Monthly subscription billing |
-| `*/15 * * * *` | Every 15 minutes | Periodic cache warming |
-| `@hourly` | Every hour | Macro for `0 * * * *` |
-| `@daily` | Every day at midnight | Macro for `0 0 * * *` |
-| `@every 5m` | Every 5 minutes | Periodic interval execution |
-
-You can also specify explicit timezones with `CRON_TZ`:
-```go
-scheduler.Add("market-open", "CRON_TZ=America/New_York 0 9 * * 1-5", jobHandler)
-```
+For prerequisites and database setup, see [Installation](./installation.md). For advanced options, cron syntax, and runtime controls, see the [Usage Guide](./usage-guide.md).
 
 ---
 
@@ -182,5 +152,6 @@ d-cron takes a simpler, more robust path: a **single leader election** via light
 
 ## Next Steps
 
-- Read the [Usage Guide](./usage-guide.md) for requirements, database permissions, and setup instructions.
+- Follow the [Installation Guide](./installation.md) for requirements and database configuration.
+- Read the [Usage Guide](./usage-guide.md) for scheduler options, cron syntax, and job lifecycle patterns.
 - Learn more about the [Core Architecture](./architecture/advisory-locks.md) and [Split-Brain Fencing](./architecture/fencing-tokens.md).

@@ -7,160 +7,159 @@ slug: /usage-guide
 
 # Usage Guide
 
-This guide covers system requirements, module installation, database configuration, and core usage patterns for d-cron.
+This guide explains how to configure, operate, and manage background cron jobs with d-cron in your Go applications.
+
+For prerequisites, Go module installation, and PostgreSQL database permissions, see the [Installation Guide](./installation.md).
 
 ---
 
-## Requirements
+## Initializing the Scheduler
 
-| Requirement | Minimum Version | Recommended | Notes |
-| :--- | :--- | :--- | :--- |
-| **Go** | 1.21+ | 1.23+ | Uses standard library `context`, `sync`, and `log/slog` |
-| **PostgreSQL** | 12.0+ | 14.0+ | Supports 64-bit Session Advisory Locks (`pg_try_advisory_lock`) |
-| **Go Database Driver** | `database/sql` (`lib/pq` or `pgx/v5`) | `pgx/v5` (stdlib mode) or `lib/pq` | Any standard `*sql.DB` connection pool |
-
----
-
-## Module Installation
-
-Install d-cron using standard Go modules:
-
-```bash
-go get github.com/mindfire-test/d-cron@latest
-```
-
-All optional sub-packages (metrics, tracing, web dashboard UI) reside in the same repository:
+Initialize a new scheduler instance by passing your existing `*sql.DB` connection pool along with functional options:
 
 ```go
+package main
+
 import (
-    "github.com/mindfire-test/d-cron/dcron"
-    "github.com/mindfire-test/d-cron/metrics"
-    "github.com/mindfire-test/d-cron/otel"
-    "github.com/mindfire-test/d-cron/ui"
+	"database/sql"
+	"log/slog"
+	"time"
+
+	"github.com/mindfire-test/d-cron/dcron"
+	_ "github.com/lib/pq"
 )
+
+func createScheduler(db *sql.DB) (*dcron.Dcron, error) {
+	return dcron.New(db,
+		// Unique namespace to isolate advisory locks per application
+		dcron.WithNamespace("payment-service"),
+
+		// Frequency at which standby nodes check for leadership promotion
+		dcron.WithPollInterval(3*time.Second),
+
+		// Dedicated connection pinning for session advisory lock stability
+		dcron.WithSessionStableConnection(),
+
+		// Standard structured logger
+		dcron.WithLogger(slog.Default()),
+
+		// Default execution timeout applied to registered jobs
+		dcron.WithTimeout(10*time.Minute),
+	)
+}
 ```
 
 ---
 
-## Database Setup & Permissions
+## Configuration Options Reference
 
-### Zero-Migration Default Mode
-
-By default, d-cron operates using **PostgreSQL Session Advisory Locks**:
-- It requires **zero schema migrations**.
-- It creates **zero database tables**.
-- It requires no special DDL (`CREATE TABLE`) privileges.
-
-All d-cron requires is a standard PostgreSQL role with `CONNECT` permissions on your existing application database:
-
-```sql
-GRANT CONNECT ON DATABASE myapp_db TO app_user;
-```
-
-### Optional History & Audit Store Setup
-
-If you enable durable execution history logging (`dcron.WithHistory(retention)`), d-cron automatically creates and migrates its required schema (default `"dcron"`) and tables (`leader_epoch` and `execution`) under a serialized advisory lock.
-
-If your database user does not have DDL privileges, you can execute the idempotent DDL migration script manually:
-
-```sql
-CREATE SCHEMA IF NOT EXISTS dcron;
-
-CREATE TABLE IF NOT EXISTS dcron.leader_epoch (
-    namespace   TEXT PRIMARY KEY,
-    epoch       BIGINT NOT NULL,
-    instance_id TEXT NOT NULL,
-    acquired_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS dcron.execution (
-    id            BIGSERIAL PRIMARY KEY,
-    namespace     TEXT NOT NULL,
-    job_name      TEXT NOT NULL,
-    scheduled_at  TIMESTAMPTZ NOT NULL,
-    started_at    TIMESTAMPTZ NOT NULL,
-    finished_at   TIMESTAMPTZ,
-    duration_ms   BIGINT,
-    outcome       TEXT NOT NULL,
-    error         TEXT,
-    attempt       INT NOT NULL DEFAULT 1,
-    leader_epoch  BIGINT NOT NULL,
-    instance_id   TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_dcron_exec_job_sched 
-    ON dcron.execution(namespace, job_name, scheduled_at DESC);
-```
+| Option | Description | Default |
+| :--- | :--- | :--- |
+| `WithNamespace(name)` | Sets the advisory lock key namespace. Prevents lock collisions between independent applications sharing a database. | `"default"` |
+| `WithPollInterval(duration)` | Polling frequency used by standby replicas to attempt lock acquisition. | `5s` |
+| `WithSessionStableConnection()` | Pins the election loop to a dedicated, persistent `*sql.Conn` to prevent connection-pool recycling issues. | Enabled |
+| `WithLogger(logger)` | Integrates standard Go `log/slog` structured logging. | `slog.Default()` |
+| `WithTimeout(duration)` | Sets a global execution timeout for all jobs unless overridden per job. | None |
+| `WithOverlapPolicy(policy)` | Configures behavior when a job trigger arrives while the previous run is still active (`OverlapSkip` or `OverlapAllow`). | `OverlapSkip` |
+| `WithHistory(retention)` | Enables the persistent audit store to record execution logs and leader epochs in PostgreSQL. | Disabled |
 
 ---
 
-## Scheduler Configuration & Lifecycle
+## Registering Jobs & Schedules
 
-### 1. Constructing the Scheduler
-
-When initializing `dcron.New`, you can pass functional options to tailor behavior:
+Register jobs using `scheduler.Add`, providing a unique job name, schedule expression, and an execution handler function:
 
 ```go
-scheduler, err := dcron.New(db,
-    // Unique namespace for advisory lock isolation
-    dcron.WithNamespace("billing-service"),
+// 1. Standard 5-field cron syntax (runs daily at 02:00 AM)
+err := scheduler.Add("nightly-backup", "0 2 * * *", func(ctx context.Context) error {
+	return performBackup(ctx)
+})
 
-    // Frequency with which standbys check for leader promotion
-    dcron.WithPollInterval(3*time.Second),
+// 2. Macro syntax (runs once an hour at the top of the hour)
+err = scheduler.Add("hourly-sync", "@hourly", func(ctx context.Context) error {
+	return syncData(ctx)
+})
 
-    // Ensures the election uses a dedicated, stable PostgreSQL session connection
-    dcron.WithSessionStableConnection(),
+// 3. Periodic interval syntax (runs every 15 minutes)
+err = scheduler.Add("cache-warmer", "@every 15m", func(ctx context.Context) error {
+	return refreshCache(ctx)
+})
 
-    // Structured logging via standard log/slog
-    dcron.WithLogger(slog.Default()),
-
-    // Optional: Maximum execution timeout applied to all jobs
-    dcron.WithTimeout(15*time.Minute),
-)
-```
-
-### 2. Registering Jobs
-
-Register jobs with a name, a cron expression (5-field or macros like `@daily`), and a handler function:
-
-```go
-err = scheduler.Add("cache-sync", "@every 10m", func(ctx context.Context) error {
-    epoch := dcron.Epoch(ctx)
-    slog.Info("Running cache sync", "epoch", epoch)
-    return syncCache(ctx)
+// 4. Timezone override (runs at 09:00 AM New York time)
+err = scheduler.Add("ny-morning-report", "CRON_TZ=America/New_York 0 9 * * 1-5", func(ctx context.Context) error {
+	return sendMorningReport(ctx)
 })
 ```
 
-### 3. Starting the Scheduler
+---
 
-Start the background leader election and min-heap timer clock:
+## Working with Job Context
+
+Every job receives a standard `context.Context` populated with execution metadata and split-brain fencing tokens:
 
 ```go
-if err := scheduler.Start(context.Background()); err != nil {
-    log.Fatalf("Failed to start scheduler: %v", err)
-}
+err := scheduler.Add("process-invoices", "@every 30m", func(ctx context.Context) error {
+	// Monotonic leader epoch: strictly increases across leadership changes
+	epoch := dcron.Epoch(ctx)
+
+	// Unique idempotency key: deterministic per job execution attempt
+	idempotencyKey := dcron.IdempotencyKey(ctx)
+
+	slog.Info("Executing invoice batch",
+		"epoch", epoch,
+		"idempotency_key", idempotencyKey,
+	)
+
+	// Pass epoch into database queries to fence stale writes
+	return updateInvoicesWithFencing(ctx, epoch)
+})
 ```
 
-### 4. Graceful Shutdown
+---
 
-Always shut down the scheduler gracefully upon receiving OS termination signals (`SIGINT`, `SIGTERM`):
+## Scheduler Lifecycle & Graceful Shutdown
+
+Always manage the scheduler lifecycle alongside your application's HTTP/gRPC server:
 
 ```go
-stopChan := make(chan os.Signal, 1)
-signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
-<-stopChan
+// Start the scheduler background loop
+if err := scheduler.Start(context.Background()); err != nil {
+	log.Fatalf("Failed to start scheduler: %v", err)
+}
 
-// Waits for currently executing in-flight jobs to finish cleanly and releases the lock
+// Trap OS termination signals (SIGINT, SIGTERM)
+sigChan := make(chan os.Signal, 1)
+signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+<-sigChan
+
+// Stop gracefully drains in-flight jobs and releases the PostgreSQL advisory lock
 if err := scheduler.Stop(); err != nil {
-    log.Printf("Scheduler shutdown warning: %v", err)
+	log.Printf("Scheduler shutdown warning: %v", err)
 }
 ```
 
 ---
 
-## Running CLI Examples
+## Runtime Job Controls
 
-The repository includes ready-to-run examples in the `examples/` directory:
+d-cron allows dynamically inspecting, triggering, or removing jobs while the scheduler is running:
+
+```go
+// Manually trigger a job immediately outside its normal schedule
+err := scheduler.Trigger("nightly-backup")
+
+// Remove a registered job at runtime
+err = scheduler.Remove("cache-warmer")
+
+// Check current leadership status of this container instance
+isLeader := scheduler.IsLeader()
+```
+
+---
+
+## Running Included Examples
+
+The `examples/` directory contains complete, runnable sample applications:
 
 ### Minimal Standalone Runner
 ```bash
@@ -171,11 +170,12 @@ go run ./examples/minimal/main.go -db "postgres://user:pass@localhost:5432/myapp
 ```bash
 go run ./examples/with-dashboard/main.go -port 8080
 ```
-Open `http://localhost:8080/dcron/ui/` in your browser to view the embedded dashboard.
+Open `http://localhost:8080/dcron/ui/` in your browser to inspect jobs and history.
 
 ---
 
 ## Next Steps
 
-- Explore [Core Architecture](./architecture/advisory-locks.md) to understand PostgreSQL advisory locks and leader election.
-- Review [Execution Safety & Retries](./guides/execution-safety.md) for panic recovery and timeout configurations.
+- Learn about [Core Architecture](./architecture/advisory-locks.md) and advisory lock internals.
+- Explore [Split-Brain & Fencing](./architecture/fencing-tokens.md) to safeguard critical database updates.
+- Check [Execution Safety & Retries](./guides/execution-safety.md) for panic recovery and backoff retries.
