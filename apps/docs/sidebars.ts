@@ -9,6 +9,11 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'doc',
+      id: 'installation',
+      label: 'Installation',
+    },
+    {
+      type: 'doc',
       id: 'usage-guide',
       label: 'Usage Guide',
     },
