@@ -1,11 +1,11 @@
 ---
 id: intro
-title: Getting Started
-sidebar_label: Getting Started
+title: Introduction
+sidebar_label: Introduction
 slug: /intro
 ---
 
-# Getting Started with d-cron
+# Introduction
 
 d-cron is a lightweight, distributed cron scheduler library for Go that coordinates scheduled background jobs across multiple application replicas using only your existing PostgreSQL database.
 
