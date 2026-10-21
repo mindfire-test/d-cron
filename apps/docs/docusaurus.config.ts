@@ -30,7 +30,6 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/mindfire-test/d-cron/tree/main/apps/docs/',
         },
         blog: false,
         theme: {
