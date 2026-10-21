@@ -1,7 +1,7 @@
 ---
 id: contributing
 title: Contributor & Developer Guide
-sidebar_label: Contributor Guide
+sidebar_label: Contributing
 ---
 
 # Contributor & Developer Guide

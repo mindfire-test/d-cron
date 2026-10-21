@@ -1,7 +1,7 @@
 ---
 id: execution-safety
 title: Execution Safety, Panic Recovery & Retries
-sidebar_label: Execution Safety
+sidebar_label: Execution Safety & Retries
 ---
 
 # Execution Safety, Panic Recovery & Retries

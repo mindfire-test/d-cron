@@ -1,7 +1,7 @@
 ---
 id: history-store
 title: Audit & History Store
-sidebar_label: History Store
+sidebar_label: Execution History Store
 ---
 
 # Audit & History Store
