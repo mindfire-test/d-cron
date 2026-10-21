@@ -29,8 +29,6 @@ linters:
     - unused # unused declarations/fields.
 
 linters-settings:
-  gofumpt:
-    module-path: github.com/mindfire-test/d-cron
   revive:
     confidence: 0.8
 
