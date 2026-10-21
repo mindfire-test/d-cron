@@ -4,13 +4,13 @@ title: Contributor & Developer Guide
 sidebar_label: Contributor Guide
 ---
 
-# 🤝 Contributor & Developer Guide
+# Contributor & Developer Guide
 
 Thank you for your interest in contributing to **`d-cron`**! This document provides instructions for setting up a local development environment, running tests, formatting code, and submitting pull requests.
 
 ---
 
-## 🛠️ Prerequisites
+## Prerequisites
 
 Before building `d-cron` locally, ensure you have the following installed:
 
@@ -22,7 +22,7 @@ Before building `d-cron` locally, ensure you have the following installed:
 
 ---
 
-## 🚀 Local Setup & Workflow
+## Local Setup & Workflow
 
 ### 1. Clone Repository & Install Dependencies
 
@@ -79,7 +79,7 @@ make ci
 
 ---
 
-## 📜 Commit Message Guidelines
+## Commit Message Guidelines
 
 `d-cron` enforces **Conventional Commits** syntax:
 
@@ -100,7 +100,7 @@ git commit -m "feat(executor): add support for OverlapCancelPrevious policy"
 
 ---
 
-## 📄 Documentation Site Development
+## Documentation Site Development
 
 To run the Docusaurus documentation website locally:
 

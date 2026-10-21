@@ -4,13 +4,13 @@ title: Installation & Setup
 sidebar_label: Installation
 ---
 
-# 📦 Installation & Setup
+# Installation & Setup
 
 `d-cron` is an embeddable Go library with zero external daemon dependencies. Installing and configuring it into an existing or new Go application requires minimal steps.
 
 ---
 
-## 📋 Requirements
+## Requirements
 
 | Requirement | Minimum Version | Recommended | Notes |
 | :--- | :--- | :--- | :--- |
@@ -20,7 +20,7 @@ sidebar_label: Installation
 
 ---
 
-## 📥 Module Installation
+## Module Installation
 
 Install `d-cron` using standard Go modules:
 
@@ -41,7 +41,7 @@ import (
 
 ---
 
-## 🗄️ Database Setup & Permissions
+## Database Setup & Permissions
 
 ### Zero-Migration Default Mode
 
@@ -93,7 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_dcron_exec_job_sched
 
 ---
 
-## 💻 Running CLI Examples & Tools
+## Running CLI Examples & Tools
 
 The `d-cron` repository contains ready-to-run CLI examples inside `examples/`:
 
@@ -110,7 +110,7 @@ Then open `http://localhost:8080/dcron/ui/` in your browser.
 
 ---
 
-## ⏭️ Next Steps
+## Next Steps
 
 - Follow the [Quickstart Guide](./quickstart.md) to register your first distributed job.
 - Explore [Core Architecture](./architecture/advisory-locks.md) to understand single-leader election and the in-memory clock engine.

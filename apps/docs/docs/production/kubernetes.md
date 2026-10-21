@@ -4,7 +4,7 @@ title: Production & Kubernetes
 sidebar_label: Production & Kubernetes
 ---
 
-# ☸️ Production Deployment & Database Tuning
+# Production Deployment & Database Tuning
 
 `d-cron` is built natively for horizontal scaling in containerized production environments. Because coordination occurs at the database layer via PostgreSQL advisory locks, deployments require **no custom Kubernetes CRDs**, **no statefulsets**, and **no RBAC permissions**.
 
@@ -12,7 +12,7 @@ This guide covers production deployment manifests, readiness probes, PgBouncer p
 
 ---
 
-## 📄 1. Kubernetes Deployment Manifest
+## 1. Kubernetes Deployment Manifest
 
 Here is a recommended Kubernetes `Deployment` manifest passing the Pod name to `d-cron` via the Downward API:
 
@@ -73,7 +73,7 @@ spec:
 
 ---
 
-## 🚦 2. Health & Readiness Probes
+## 2. Health & Readiness Probes
 
 In your Go application, expose `/healthz` to report readiness:
 
@@ -144,7 +144,7 @@ scheduler, _ := dcron.New(
 
 ---
 
-## 🔌 4. Driver Setup: `pgx/v5` & `lib/pq`
+## 4. Driver Setup: `pgx/v5` & `lib/pq`
 
 `d-cron` supports both standard `database/sql` (`lib/pq`, `pgx/v5/stdlib`) and native `pgx/v5` pool connections (`*pgxpool.Pool`).
 
@@ -203,7 +203,7 @@ scheduler, _ := dcron.New(db, dcron.WithNamespace("my-service"))
 
 ---
 
-## 🛑 5. Graceful Shutdown & Drain Timeout
+## 5. Graceful Shutdown & Drain Timeout
 
 Always listen for OS termination signals (`SIGTERM`, `SIGINT`) to allow running jobs to finish and release the leadership lock gracefully:
 

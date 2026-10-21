@@ -4,13 +4,13 @@ title: Quickstart & Cron Syntax
 sidebar_label: Quickstart & Cron Syntax
 ---
 
-# 🚀 Quickstart Guide & Cron Syntax
+# Quickstart Guide & Cron Syntax
 
 This guide demonstrates how to install `d-cron`, integrate it into a Go application with PostgreSQL, and configure cron schedules.
 
 ---
 
-## 📦 Installation
+## Installation
 
 Add `d-cron` to your Go project using `go get`:
 
@@ -20,7 +20,7 @@ go get github.com/mindfire-test/d-cron
 
 ---
 
-## 🛠️ Complete Working Example
+## Complete Working Example
 
 ```go
 package main
@@ -92,7 +92,7 @@ func main() {
 
 ---
 
-## ⏰ Cron Expression Syntax
+## Cron Expression Syntax
 
 `d-cron` supports standard 5-field cron syntax, optional 6-field second-level precision, macros (`@every 5m`), and timezone overrides (`CRON_TZ`).
 
@@ -140,7 +140,7 @@ scheduler.Add("ny-morning-report", "CRON_TZ=America/New_York 0 9 * * *", jobHand
 
 ---
 
-## 🔍 How it Works Across Scaled Replicas
+## How it Works Across Scaled Replicas
 
 When `N` replicas of your application run this same code:
 

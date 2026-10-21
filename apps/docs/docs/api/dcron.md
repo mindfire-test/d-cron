@@ -4,13 +4,13 @@ title: API Reference
 sidebar_label: API Reference
 ---
 
-# 📚 Go API Reference
+# Go API Reference
 
 Complete API reference for `d-cron` core packages: `dcron`, `executor`, `metrics`, and `otel`.
 
 ---
 
-## 🏗️ Package `dcron`
+## Package `dcron`
 
 The primary package `github.com/mindfire-test/d-cron/dcron` contains the `Scheduler` type, constructor options, job registration methods, and fencing utilities.
 
@@ -85,7 +85,7 @@ func FenceSchema(ctx context.Context, tx Querier, schema string) error
 
 ---
 
-## 🛠️ Package `executor`: Job Options & Policies
+## Package `executor`: Job Options & Policies
 
 Job functions registered with `d-cron` implement the standard signature:
 
@@ -120,7 +120,7 @@ type Retry struct {
 
 ---
 
-## 📈 Package `metrics`: Observability Seam
+## Package `metrics`: Observability Seam
 
 ```go
 type Recorder interface {
@@ -149,7 +149,7 @@ const (
 
 ---
 
-## 🔍 Package `otel`: Distributed Tracing
+## Package `otel`: Distributed Tracing
 
 ```go
 type Tracer interface {

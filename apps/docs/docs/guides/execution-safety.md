@@ -4,13 +4,13 @@ title: Execution Safety, Panic Recovery & Retries
 sidebar_label: Execution Safety
 ---
 
-# 🛡️ Execution Safety, Panic Recovery & Retries
+# Execution Safety, Panic Recovery & Retries
 
 Production background job engines must be resilient against runtime panics, unhandled errors, and external timeouts. `d-cron` provides built-in safety mechanics to prevent crash cascading and ensure reliable task execution.
 
 ---
 
-## ⚡ Automatic Panic Recovery
+## Automatic Panic Recovery
 
 Every job routine dispatched by `d-cron` is isolated in its own goroutine wrapped with an automatic `recover()` block.
 
@@ -43,7 +43,7 @@ scheduler, err := dcron.New(
 
 ---
 
-## 🔁 Exponential Backoff & Jitter Retries
+## Exponential Backoff & Jitter Retries
 
 Transient errors (e.g. database deadlocks, network timeouts) can be retried automatically using `dcron.WithRetry`:
 
@@ -62,7 +62,7 @@ scheduler.Add("charge-pending-subscriptions", "0 6 * * *", chargeFn,
 
 ---
 
-## ⏱️ Timeout Management & Context Cancellation
+## Timeout Management & Context Cancellation
 
 Wrap long-running jobs with explicit deadlines using `dcron.WithTimeout`:
 
@@ -88,7 +88,7 @@ When a job exceeds its configured timeout:
 
 ---
 
-## 🛑 Graceful Draining on Shutdown
+## Graceful Draining on Shutdown
 
 When `scheduler.Stop(ctx)` is called (e.g. on `SIGTERM`):
 1. The leader releases the advisory lock cleanly.

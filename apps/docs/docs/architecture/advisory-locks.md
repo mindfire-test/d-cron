@@ -4,7 +4,7 @@ title: Core Architecture
 sidebar_label: Core Architecture
 ---
 
-# 🏗️ Core Architecture & Distributed Coordination
+# Core Architecture & Distributed Coordination
 
 `d-cron` provides safe, single-leader cron-style job scheduling across an arbitrary number of horizontally-scaled application replicas using only **PostgreSQL Session-Bound Advisory Locks**.
 
@@ -12,7 +12,7 @@ This guide covers the core architectural building blocks: advisory locks, leader
 
 ---
 
-## 🔒 1. PostgreSQL Session Advisory Locks
+## 1. PostgreSQL Session Advisory Locks
 
 Unlike traditional row-level locks (`SELECT FOR UPDATE`), PostgreSQL advisory locks exist purely in the PostgreSQL shared memory lock table and do not write to tables or generate WAL (Write-Ahead Logging) overhead.
 
@@ -45,7 +45,7 @@ Session-bound advisory locks are attached directly to the **underlying TCP conne
 
 ---
 
-## 🔑 2. Deterministic Key Resolution
+## 2. Deterministic Key Resolution
 
 `d-cron` derives a deterministic 64-bit advisory lock key from your configured namespace string (e.g. `orders-service`):
 
@@ -67,7 +67,7 @@ func LockKey(namespace string) int64 {
 
 ---
 
-## 👑 3. Leader Election & Failover Loop
+## 3. Leader Election & Failover Loop
 
 `d-cron` operates a **Single Active Leader** execution model. Across `N` running replicas, exactly **one** node acts as the active Leader, while the remaining `N-1` nodes remain in Standby mode.
 
@@ -119,7 +119,7 @@ sequenceDiagram
 
 ---
 
-## ⏱️ 4. In-Memory Clock Engine & Worker Pools
+## 4. In-Memory Clock Engine & Worker Pools
 
 When an instance becomes Leader, `d-cron` initializes an internal min-heap timer wheel containing all registered cron entries (`robfig/cron/v3` semantics):
 
@@ -150,7 +150,7 @@ When an instance becomes Leader, `d-cron` initializes an internal min-heap timer
 
 ---
 
-## 📊 Advisory Locks vs Row Locks Comparison
+## Advisory Locks vs Row Locks Comparison
 
 | Metric / Feature | Row-Level Locks (`SELECT FOR UPDATE`) | Session Advisory Locks (`d-cron`) |
 | :--- | :--- | :--- |
@@ -164,7 +164,7 @@ When an instance becomes Leader, `d-cron` initializes an internal min-heap timer
 
 ---
 
-## ⚙️ Elector Backend Interface
+## Elector Backend Interface
 
 `d-cron` defines a clean interface for advisory lock operations behind `internal/elector.Backend`, enabling unit and integration testing without a live database:
 

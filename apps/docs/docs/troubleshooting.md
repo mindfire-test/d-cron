@@ -4,13 +4,13 @@ title: Troubleshooting & FAQ
 sidebar_label: Troubleshooting & FAQ
 ---
 
-# 🔍 Troubleshooting Guide & FAQ
+# Troubleshooting Guide & FAQ
 
 This guide helps diagnose and resolve common issues encountered when integrating or deploying `d-cron`, and answers frequently asked questions.
 
 ---
 
-## 🚨 Common Issues & Resolutions
+## Common Issues & Resolutions
 
 ### 1. Lock Contention / Advisory Lock Dropping in PgBouncer
 
@@ -74,7 +74,7 @@ scheduler, err := dcron.New(db, dcron.WithPollInterval(3 * time.Second))
 
 ---
 
-## 📝 Diagnostic Logging Checklist
+## Diagnostic Logging Checklist
 
 When filing an issue or debugging:
 - [x] Enable structured debug logging via `log/slog`.
@@ -84,7 +84,7 @@ When filing an issue or debugging:
 
 ---
 
-## ❓ Frequently Asked Questions (FAQ)
+## Frequently Asked Questions (FAQ)
 
 ### Q: Why use `d-cron` instead of `gocron`, `asynq`, or `robfig/cron`?
 **A:** In-process cron libraries like `robfig/cron` or `gocron` do not natively coordinate single-leader election across multiple scaled pod replicas, resulting in duplicate job runs or database connection lock spikes at trigger boundaries. Task queues like `asynq` or `river` solve coordination but require introducing extra infrastructure (Redis or custom PostgreSQL job payload queue tables with schema migrations). `d-cron` provides safe distributed single-leader coordination **in-process using PostgreSQL advisory locks with zero new database tables.**

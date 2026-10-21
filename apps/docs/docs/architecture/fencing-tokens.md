@@ -4,7 +4,7 @@ title: Split-Brain & Fencing Tokens
 sidebar_label: Split-Brain & Fencing
 ---
 
-# 🛡️ Split-Brain Prevention & Fencing Tokens
+# Split-Brain Prevention & Fencing Tokens
 
 In distributed systems, GC pauses, heavy OS swapping, or temporary network partitions can cause a node to experience a **split-brain** state: a node *thinks* it is still the leader while a new leader has already been elected.
 
@@ -12,19 +12,19 @@ In distributed systems, GC pauses, heavy OS swapping, or temporary network parti
 
 ---
 
-## ⚡ The Split-Brain Threat
+## The Split-Brain Threat
 
 Without fencing, a delayed node (Replica A) might resume executing a long-running scheduled job (such as generating daily invoices) while Replica B has already assumed leadership and triggered the same job:
 
 ```
-[Replica A (Old Leader)] ────(GC Pause 10s)────► Executes Job (Epoch 4) ───► Database Write! ❌ (Duplicate)
+[Replica A (Old Leader)] ────(GC Pause 10s)────► Executes Job (Epoch 4) ───► Database Write!  (Duplicate)
                                                       ▲
 [Replica B (New Leader)] ───(Elected Leader)────► Executes Job (Epoch 5) ───► Database Write!
 ```
 
 ---
 
-## 🔑 How Fencing Tokens Work
+## How Fencing Tokens Work
 
 `d-cron` attaches a strictly increasing **Monotonic Leader Epoch** and an execution **Idempotency Key** to the `context.Context` of every job execution.
 
@@ -50,7 +50,7 @@ scheduler.Add("generate-invoices", "0 1 * * *", func(ctx context.Context) error 
 
 ---
 
-## 🗄️ PostgreSQL Transaction Fencing (`dcron.Fence`)
+## PostgreSQL Transaction Fencing (`dcron.Fence`)
 
 When `WithHistory` is enabled, `d-cron` automatically records the latest active leader epoch in `{schema}.leader_epoch`.
 
@@ -87,7 +87,7 @@ dcron: fenced write rejected: ctx epoch 4 != current db epoch 5
 
 ---
 
-## 🗄️ Database Optimistic Fencing Pattern
+## Database Optimistic Fencing Pattern
 
 For systems without `dcron.Fence` or custom databases, store the highest processed epoch in your own application schema:
 
@@ -131,7 +131,7 @@ func executeInvoiceBatch(ctx context.Context, currentEpoch int64) error {
 
 ---
 
-## 🔴 External & Redis Distributed Fencing
+## External & Redis Distributed Fencing
 
 When writing to Redis or external key-value stores from a scheduled job, use `dcron.Epoch(ctx)` or `dcron.IdempotencyKey(ctx)` as an atomic conditional guard or lock value:
 
@@ -167,7 +167,7 @@ func RedisFencedJob(ctx context.Context, rdb *redis.Client) error {
 
 ---
 
-## 🌐 Outgoing HTTP API Idempotency Fencing
+## Outgoing HTTP API Idempotency Fencing
 
 For jobs calling third-party payment gateways (Stripe, Adyen, Twilio), send `dcron.IdempotencyKey(ctx)` in standard idempotency headers:
 
@@ -183,7 +183,7 @@ This guarantees that even in split-brain edge cases, third-party payment gateway
 
 ---
 
-## 📌 Summary
+## Summary
 
 1. **Context Carrier**: Every `d-cron` job receives a `ctx` populated with `dcron.Epoch(ctx)` and `dcron.IdempotencyKey(ctx)`.
 2. **Monotonic Guarantee**: Epochs strictly increment on every failover, ensuring older leaders can never produce higher tokens than newer leaders.

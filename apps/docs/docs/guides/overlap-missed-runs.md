@@ -4,7 +4,7 @@ title: Overlap & Missed Run Policies
 sidebar_label: Overlap & Missed Runs
 ---
 
-# 🔄 Overlap & Missed Run Policies
+# Overlap & Missed Run Policies
 
 In production environments, a long-running batch job may take longer than its scheduled trigger interval, or an application deployment/restart may cause a scheduled trigger time to be missed.
 
@@ -12,7 +12,7 @@ In production environments, a long-running batch job may take longer than its sc
 
 ---
 
-## 🔀 Overlap Policies (`OverlapPolicy`)
+## Overlap Policies (`OverlapPolicy`)
 
 When a job scheduled for `*/1 * * * *` (every 1 minute) takes 90 seconds to finish, what should happen when the next 60-second mark arrives?
 
@@ -43,7 +43,7 @@ scheduler.Add("scrape-webhooks", "*/5 * * * *", scrapeHandler,
 
 ---
 
-## ⏰ Missed Run Policies (`MissedRunPolicy`)
+## Missed Run Policies (`MissedRunPolicy`)
 
 If your service was offline or restarting between 02:00 AM and 02:15 AM, and a job was scheduled for 02:05 AM, how should `d-cron` respond when the instance boots at 02:15 AM?
 
@@ -63,7 +63,7 @@ scheduler.Add("daily-settlement", "0 2 * * *", settlementHandler,
 
 ---
 
-## ⏳ Execution Relative to Last Success (`WithSinceLastSuccess`)
+## Execution Relative to Last Success (`WithSinceLastSuccess`)
 
 For jobs that need a fixed quiet period between executions regardless of clock alignment:
 
@@ -76,7 +76,7 @@ scheduler.Add("heavy-backup", "@since_success 15m", backupHandler,
 
 ---
 
-## 💡 Example Configuration Matrix
+## Example Configuration Matrix
 
 ```go
 // 1. Financial Ledger Audit (Queue overlap, catch up missed runs, 30m timeout)
