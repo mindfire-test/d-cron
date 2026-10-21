@@ -5,7 +5,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'd-cron',
   tagline: 'Distributed Cron Scheduler for Horizontally-Scaled Go Applications',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/d-cron-logo.png',
 
   future: {
     v4: true,
@@ -54,16 +54,17 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/docusaurus-social-card.jpg',
+    image: 'img/d-cron-logo.png',
     colorMode: {
       defaultMode: 'dark',
-      respectPrefersColorScheme: true,
+      disableSwitch: false,
+      respectPrefersColorScheme: false,
     },
     navbar: {
       title: 'd-cron',
       logo: {
-        alt: 'd-cron Logo',
-        src: 'img/logo.svg',
+        alt: 'd-cron',
+        src: 'img/d-cron-logo.png',
       },
       items: [
         {
@@ -97,74 +98,14 @@ const config: Config = {
         },
         {
           href: 'https://github.com/mindfire-test/d-cron',
-          label: 'GitHub',
           position: 'right',
+          className: 'header-github-link',
+          'aria-label': 'GitHub repository',
         },
       ],
     },
     footer: {
       style: 'dark',
-      links: [
-        {
-          title: 'Documentation',
-          items: [
-            {
-              label: 'Getting Started',
-              to: '/docs/intro',
-            },
-            {
-              label: 'Quickstart',
-              to: '/docs/quickstart',
-            },
-            {
-              label: 'Architecture & Locking',
-              to: '/docs/architecture/advisory-locks',
-            },
-            {
-              label: 'API Reference',
-              to: '/docs/api/dcron',
-            },
-          ],
-        },
-        {
-          title: 'Features & Production',
-          items: [
-            {
-              label: 'Observability & Dashboard',
-              to: '/docs/guides/observability',
-            },
-            {
-              label: 'Execution History',
-              to: '/docs/guides/history-store',
-            },
-            {
-              label: 'PgBouncer & Connection Pools',
-              to: '/docs/production/pgbouncer',
-            },
-            {
-              label: 'Kubernetes Probes',
-              to: '/docs/production/kubernetes',
-            },
-          ],
-        },
-        {
-          title: 'Community & Source',
-          items: [
-            {
-              label: 'GitHub Repository',
-              href: 'https://github.com/mindfire-test/d-cron',
-            },
-            {
-              label: 'Contributor Guide',
-              to: '/docs/contributing',
-            },
-            {
-              label: 'Mindfire Digital',
-              href: 'https://github.com/mindfiredigital',
-            },
-          ],
-        },
-      ],
       copyright: `© ${new Date().getFullYear()} Mindfire FOSS`,
     },
     prism: {
