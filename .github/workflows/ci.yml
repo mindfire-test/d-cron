@@ -31,7 +31,7 @@ jobs:
 
       - name: Check formatting (gofumpt)
         run: |
-          go install mvdan.cc/gofumpt@latest
+          go install mvdan.cc/gofumpt@v0.7.0
           gofumpt -d .
           if [ -n "$(gofumpt -l .)" ]; then
             echo "The following files are not formatted with gofumpt:"
@@ -134,5 +134,5 @@ jobs:
 
       - name: Run govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           govulncheck ./... || echo "govulncheck reported findings (non-blocking informational scan)"
