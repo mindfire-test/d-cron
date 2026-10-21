@@ -1,9 +1,7 @@
 # CodeRabbit configuration for d-cron.
 #
-# Reviewed 2026-08-26 against the current repo layout: docs live under docs/,
-# all tests under test/ (external _test packages), examples are self-contained
-# Go modules. The old root-level *_test.go guidance is gone because no such
-# files exist anymore.
+# Documentation lives under docs/ and apps/docs/, tests under test/
+# (external _test packages), and examples are self-contained Go modules.
 #
 #   Docs: https://docs.coderabbit.ai/reference/configuration-template
 language: en-US

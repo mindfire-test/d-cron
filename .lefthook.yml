@@ -1,7 +1,6 @@
 # Lefthook configuration for d-cron.
 #
-# Mirrors DeepScanBot's commit gates, adapted for a pure-Go library. Install the
-# tool once (see DEVELOPMENT.md), then:
+# Configures automated pre-commit, commit-msg, and pre-push validation gates:
 #
 #   lefthook install
 #   git add . && git commit -m "chore(ci): add lefthook commit gates"
