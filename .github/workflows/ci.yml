@@ -42,7 +42,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v1.64.8
           verify: false
           args: --timeout=5m
 
@@ -119,8 +119,7 @@ jobs:
           go test -v -race -tags integration -timeout 15m .
 
   vulnerability-scan:
-    name: Scheduled Vulnerability Scan
-    if: github.event_name == 'schedule'
+    name: Vulnerability Scan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -133,6 +132,9 @@ jobs:
           check-latest: true
 
       - name: Run govulncheck
+        continue-on-error: true
+        env:
+          GITHUB_ACTIONS: ""
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           govulncheck ./... || echo "govulncheck reported findings (non-blocking informational scan)"
