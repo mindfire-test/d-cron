@@ -4,7 +4,7 @@ title: Installation & Setup
 sidebar_label: Installation
 ---
 
-# 📦 Installation & Prerequisites
+# 📦 Installation & Setup
 
 `d-cron` is an embeddable Go library with zero external daemon dependencies. Installing and configuring it into an existing or new Go application requires minimal steps.
 
@@ -15,7 +15,7 @@ sidebar_label: Installation
 | Requirement | Minimum Version | Recommended | Notes |
 | :--- | :--- | :--- | :--- |
 | **Go** | 1.21+ | 1.23+ | Uses standard `context`, `sync`, and `log/slog` |
-| **PostgreSQL** | 12.0+ | 14.0+ | Supports 64-bit Advisory Locks |
+| **PostgreSQL** | 12.0+ | 14.0+ | Supports 64-bit Session Advisory Locks |
 | **Go Database Driver** | `database/sql` (`lib/pq` or `pgx/v5`) | `pgx/v5` (stdlib mode) or `lib/pq` | Any standard `*sql.DB` connection pool |
 
 ---
@@ -28,7 +28,7 @@ Install `d-cron` using standard Go modules:
 go get github.com/mindfire-test/d-cron@latest
 ```
 
-Optional sub-packages (metrics, tracing, web dashboard UI) are in the same module and require no extra downloads:
+All optional sub-packages (metrics, tracing, web dashboard UI) reside in the same repository:
 
 ```go
 import (
@@ -45,12 +45,12 @@ import (
 
 ### Zero-Migration Default Mode
 
-By default, `d-cron` operates using **PostgreSQL Session Advisory Locks**. 
+By default, `d-cron` operates using **PostgreSQL Session Advisory Locks**:
 - It requires **zero schema migrations**.
 - It creates **zero database tables**.
 - It requires no special DDL (`CREATE TABLE`) privileges.
 
-All `d-cron` needs is a standard Postgres role with baseline `CONNECT` permissions on your existing application database:
+All `d-cron` requires is a standard PostgreSQL role with `CONNECT` permissions on your existing application database:
 
 ```sql
 GRANT CONNECT ON DATABASE myapp_db TO app_user;
@@ -79,83 +79,38 @@ CREATE TABLE IF NOT EXISTS dcron.execution (
     scheduled_at  TIMESTAMPTZ NOT NULL,
     started_at    TIMESTAMPTZ NOT NULL,
     finished_at   TIMESTAMPTZ,
-    status        TEXT NOT NULL,
-    attempt       INT NOT NULL DEFAULT 1,
     duration_ms   BIGINT,
+    outcome       TEXT NOT NULL,
     error         TEXT,
-    instance_id   TEXT NOT NULL,
-    leader_epoch  BIGINT NOT NULL
+    attempt       INT NOT NULL DEFAULT 1,
+    leader_epoch  BIGINT NOT NULL,
+    instance_id   TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS execution_job_time_idx 
-    ON dcron.execution (namespace, job_name, scheduled_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dcron_exec_job_sched 
+    ON dcron.execution(namespace, job_name, scheduled_at DESC);
 ```
 
 ---
 
-## 🔧 Basic Initialization Pattern
+## 💻 Running CLI Examples & Tools
 
-Here is the standard initialization pattern inside a Go application `main.go`:
+The `d-cron` repository contains ready-to-run CLI examples inside `examples/`:
 
-```go
-package main
-
-import (
-	"context"
-	"database/sql"
-	"fmt"
-	"log"
-	"time"
-
-	_ "github.com/lib/pq"
-	"github.com/mindfire-test/d-cron/dcron"
-)
-
-func main() {
-	// 1. Open PostgreSQL connection
-	db, err := sql.Open("postgres", "postgres://user:pass@localhost:5432/myapp_db?sslmode=disable")
-	if err != nil {
-		log.Fatalf("failed to connect to postgres: %v", err)
-	}
-	defer db.Close()
-
-	// 2. Initialize d-cron Scheduler
-	scheduler, err := dcron.New(
-		db,
-		dcron.WithNamespace("myapp-scheduler"),
-		dcron.WithSessionStableConnection(),
-		dcron.WithPollInterval(3*time.Second),
-	)
-	if err != nil {
-		log.Fatalf("failed to create scheduler: %v", err)
-	}
-
-	// 3. Register Jobs
-	err = scheduler.Add("cleanup-temp-files", "0 */6 * * *", func(ctx context.Context) error {
-		fmt.Printf("Cleaning up temporary files (leader epoch: %d)...\n", dcron.Epoch(ctx))
-		return nil
-	})
-	if err != nil {
-		log.Fatalf("failed to register job: %v", err)
-	}
-
-	// 4. Start Scheduler in Background
-	if err := scheduler.Start(context.Background()); err != nil {
-		log.Fatalf("scheduler start error: %v", err)
-	}
-
-	// 5. Run application, then shutdown gracefully
-	stopCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := scheduler.Stop(stopCtx); err != nil {
-		log.Printf("scheduler stop warning: %v", err)
-	}
-}
+### Minimal Standalone Runner
+```bash
+go run ./examples/minimal/main.go -db "postgres://user:pass@localhost:5432/myapp_db?sslmode=disable"
 ```
+
+### Dashboard & Metrics Web Runner
+```bash
+go run ./examples/with-dashboard/main.go -port 8080
+```
+Then open `http://localhost:8080/dcron/ui/` in your browser.
 
 ---
 
 ## ⏭️ Next Steps
 
-- Explore [PostgreSQL Advisory Locks](./architecture/advisory-locks.md) to learn how `d-cron` acquires locks without polling spikes.
-- Read [Leader Election](./architecture/leader-election.md) to understand continuous heartbeat and failover mechanics.
+- Follow the [Quickstart Guide](./quickstart.md) to register your first distributed job.
+- Explore [Core Architecture](./architecture/advisory-locks.md) to understand single-leader election and the in-memory clock engine.

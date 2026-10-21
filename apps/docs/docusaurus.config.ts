@@ -17,7 +17,7 @@ const config: Config = {
   organizationName: 'mindfire-test',
   projectName: 'd-cron',
 
-  onBrokenLinks: 'warn',
+  onBrokenLinks: 'throw',
 
   i18n: {
     defaultLocale: 'en',
@@ -68,33 +68,10 @@ const config: Config = {
       },
       items: [
         {
-          to: '/docs/intro',
-          label: 'Docs',
+          type: 'docSidebar',
+          sidebarId: 'docsSidebar',
           position: 'left',
-        },
-        {
-          to: '/docs/architecture/advisory-locks',
-          label: 'Architecture',
-          position: 'left',
-        },
-        {
-          to: '/docs/guides/observability',
-          label: 'Guides',
-          position: 'left',
-        },
-        {
-          to: '/docs/api/dcron',
-          label: 'API Reference',
-          position: 'left',
-        },
-        {
-          to: '/docs/faq',
-          label: 'FAQ & Comparison',
-          position: 'left',
-        },
-        {
-          type: 'docsVersionDropdown',
-          position: 'right',
+          label: 'Documentation',
         },
         {
           href: 'https://github.com/mindfire-test/d-cron',
