@@ -3,8 +3,7 @@
 // schedule implementations (cron and interval).
 //
 // The package is deliberately database-free so it can be unit tested in
-// isolation; the elector owns leadership and the clock owns "when". See
-// SDS §4.
+// isolation; the elector owns leadership and the clock owns "when".
 package clock
 
 import (
@@ -17,12 +16,12 @@ import (
 // schedule expression.
 var ErrInvalidSchedule = errors.New("clock: invalid schedule expression")
 
-// Schedule predicts when a job fires (issue #16). It serves as the primary extension point
-// for custom schedule types like OnceSchedule (#33) and SinceSuccessSchedule (#46).
+// Schedule predicts when a job fires. It serves as the primary extension point
+// for custom schedule types like OnceSchedule and SinceSuccessSchedule.
 type Schedule interface {
 	// Next returns the next time strictly after t at which the schedule
 	// fires, in the location the schedule was parsed with. Returning the zero time
-	// (time.Time{}) signals "never again" so the min-heap evicts the entry (issue #16, SDS §4 table row 3).
+	// (time.Time{}) signals "never again" so the min-heap evicts the entry.
 	Next(t time.Time) time.Time
 }
 
@@ -39,7 +38,7 @@ type Schedule interface {
 // Month and day-of-week fields accept names (JAN..DEC, SUN..SAT,
 // case-insensitive, full or 3-letter). loc is used to interpret cron field
 // boundaries; time.UTC is substituted when nil. 6-field expressions with a
-// leading seconds field are parsed by ParseSeconds (issue #15, FR-204, FR-212).
+// leading seconds field are parsed by ParseSeconds.
 func Parse(expr string, loc *time.Location) (Schedule, error) {
 	if loc == nil {
 		loc = time.UTC
@@ -67,7 +66,7 @@ func Parse(expr string, loc *time.Location) (Schedule, error) {
 // ParseSeconds interprets a schedule expression with a leading seconds field
 // (6-field cron: second minute hour day-of-month month day-of-week). The
 // "@every", descriptor, and aliases behave exactly as in Parse. The seconds
-// field accepts 0-59, lists, ranges, and steps (issue #15, FR-212).
+// field accepts 0-59, lists, ranges, and steps.
 func ParseSeconds(expr string, loc *time.Location) (Schedule, error) {
 	if loc == nil {
 		loc = time.UTC
@@ -100,7 +99,7 @@ func (s IntervalSchedule) Next(t time.Time) time.Time {
 }
 
 // SinceSuccessSchedule fires at a fixed duration after the completion of the
-// last successful execution (issue #46, FR-210).
+// last successful execution.
 type SinceSuccessSchedule struct {
 	Interval time.Duration
 	Loc      *time.Location
@@ -116,8 +115,7 @@ func (s SinceSuccessSchedule) Next(t time.Time) time.Time {
 
 // OnceSchedule fires at one instant and never again: Next returns at for the
 // first query strictly before it, and the zero time afterwards so the heap
-// evicts the entry (issue #33, FR-209). The zero time is the established
-// "never again" signal (SDS §4 table row 3).
+// evicts the entry. The zero time is the established "never again" signal.
 type OnceSchedule struct {
 	at  time.Time
 	loc *time.Location
@@ -159,7 +157,7 @@ const (
 
 // CronSchedule is a vixie-style cron schedule: 5 fields by default
 // (minute hour dom month dow), or 6 with a leading seconds field when parsed
-// by ParseSeconds (issue #15, FR-212).
+// by ParseSeconds.
 type CronSchedule struct {
 	minute, hour, dom, month, dow uint64
 	sec                           uint64

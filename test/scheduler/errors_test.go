@@ -8,9 +8,9 @@ import (
 	"github.com/mindfire-test/d-cron/dcron"
 )
 
-// TestAddReturnsTypedErrors asserts that Add returns the typed, context-carrying
-// errors for issue #26 while remaining errors.Is-compatible with the existing
-// sentinels (so nothing that compared on dcron.ErrJobExists/dcron.ErrInvalidSpec breaks).
+// TestAddReturnsTypedErrors asserts that Add returns typed, context-carrying
+// errors while remaining errors.Is-compatible with the existing sentinels
+// (so callers comparing on dcron.ErrJobExists or dcron.ErrInvalidSpec do not break).
 func TestAddReturnsTypedErrors(t *testing.T) {
 	t.Parallel()
 	s := testScheduler(newSchedBackend())

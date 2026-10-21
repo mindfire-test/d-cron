@@ -29,10 +29,10 @@ type PgBouncerContainer struct {
 }
 
 // NewPostgres launches a clean, isolated PostgreSQL container automatically via
-// testcontainers-go (issue #4). The PostgreSQL image version is selectable via
+// testcontainers-go. The PostgreSQL image version is selectable via
 // POSTGRES_TEST_VERSION or DCRON_PG_VERSION env vars (defaulting to postgres:16-alpine).
 // If Docker is unavailable locally or container startup fails, the test skips
-// cleanly with an informative log message (NFR-204).
+// cleanly with an informative log message.
 func NewPostgres(t testing.TB) (*sql.DB, *PostgresContainer) {
 	t.Helper()
 	ctx := context.Background()
@@ -130,7 +130,7 @@ func NewPostgres(t testing.TB) (*sql.DB, *PostgresContainer) {
 }
 
 // NewPgBouncer launches a PgBouncer container in transaction pooling mode
-// fronting a PostgreSQL database instance (issue #5, C-01). The pooler size
+// fronting a PostgreSQL database instance. The pooler size
 // default is configurable (default max_client_conn=20, default_pool_size=5) to induce contention.
 func NewPgBouncer(t testing.TB, targetDSN string, poolSize int) (*sql.DB, *PgBouncerContainer) {
 	t.Helper()

@@ -116,7 +116,7 @@ func TestPoolCapacity(t *testing.T) {
 }
 
 // TestPoolCapacityReturnsTypedError asserts that elector.PoolCapacity returns the typed
-// *SingleConnectionPoolError (issue #26), not just the sentinel: callers may
+// *SingleConnectionPoolError, not just the sentinel: callers may
 // errors.As for the concrete type to read the offending MaxOpen value, and it
 // still errors.Is-compares to elector.ErrSingleConnectionPool (tested above).
 func TestPoolCapacityReturnsTypedError(t *testing.T) {

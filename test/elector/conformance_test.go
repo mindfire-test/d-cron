@@ -1,6 +1,6 @@
 package elector_test
 
-// Coordinator conformance test suite (issue #52, FR-111).
+// Coordinator conformance test suite.
 //
 // Every Coordinator implementation (Elector backed by stdBackend, MemoryCoordinator,
 // and future Redis / etcd backends) MUST pass the table-driven cases defined in
@@ -141,7 +141,7 @@ func RunCoordinatorConformance(t *testing.T, factory func() elector.Coordinator)
 }
 
 // TestMemoryCoordinator_Conformance runs the full conformance suite against the
-// in-process MemoryCoordinator (issue #52).
+// in-process MemoryCoordinator.
 func TestMemoryCoordinator_Conformance(t *testing.T) {
 	RunCoordinatorConformance(t, func() elector.Coordinator {
 		return elector.NewMemoryCoordinator("test-ns", nil)

@@ -10,7 +10,7 @@ import (
 	"github.com/mindfire-test/d-cron/metrics"
 )
 
-// TestCoreDoesNotLinkMetricsSDK enforces NFR-402 / D-08: the scheduler core
+// TestCoreDoesNotLinkMetricsSDK enforces the core boundary: the scheduler core
 // (dcron + internal/*) must never import a metrics SDK. The seam is the
 // Recorder interface in this package; an application bridges it to whatever
 // registry it owns. If this test fails, observability leaked into the core.
@@ -37,7 +37,7 @@ func TestCoreDoesNotLinkMetricsSDK(t *testing.T) {
 				}
 				for _, b := range banned {
 					if strings.Contains(line, b) {
-						t.Errorf("%s: core imports %q (NFR-402 violation)", path, b)
+						t.Errorf("%s: core imports %q (external dependency violation)", path, b)
 					}
 				}
 			}

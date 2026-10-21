@@ -3,7 +3,7 @@ package elector
 import "context"
 
 // Coordinator abstracts distributed leader election and epoch generation
-// so the scheduler scheduling loop is backend-agnostic (issue #49, FR-111).
+// so the scheduler loop remains backend-agnostic.
 //
 // Contract:
 //   - Acquire attempts promotion if standby/unknown, or verifies liveness if leader.

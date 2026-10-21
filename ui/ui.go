@@ -1,14 +1,14 @@
-// Package ui serves the embedded server-rendered dashboard.
+// Package ui provides an embedded, server-rendered dashboard for monitoring d-cron.
 //
-// The dashboard is embedded so it works air-gapped with no CDN and no build
-// step (SDS FR-407). Handler returns a read-only http.Handler (Phase 2,
-// NFR-502) that renders leadership state, the resolved advisory-lock key, the
-// registered jobs with their schedules and last outcomes, and — when history
-// is enabled — recent executions.
+// The dashboard is completely self-contained with no external CDN or asset build
+// dependencies, allowing it to operate in air-gapped environments. Handler returns
+// a read-only HTTP handler that displays the current leadership state, resolved
+// advisory-lock key, registered jobs with their configured schedules and recent outcomes,
+// and execution history when persistence is enabled.
 //
-// The surface performs no authentication or authorization: mounting it at an
-// appropriate path and protecting it is the host application's responsibility
-// (SDS FR-408).
+// The dashboard does not provide built-in authentication or authorization: securing
+// the route and mounting it behind appropriate middleware is the responsibility of
+// the host application.
 package ui
 
 import "embed"

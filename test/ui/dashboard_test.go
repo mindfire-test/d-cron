@@ -45,7 +45,7 @@ func TestHandlerRendersOverviewAndJobs(t *testing.T) {
 		}
 	}
 	if !strings.Contains(body, "no authentication") && !strings.Contains(body, "authentication or authorization") {
-		t.Error("dashboard must state that auth is the host app's responsibility (FR-408)")
+		t.Error("dashboard must state that auth is the host app's responsibility")
 	}
 }
 

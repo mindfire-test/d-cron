@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// TestC07_ReentrantAdvisoryLock is the C-07 regression from issue #28:
+// TestReentrantAdvisoryLock tests PostgreSQL advisory lock re-entrancy:
 // PostgreSQL advisory locks are re-entrant per session. A double try_lock on
 // ONE connection returns true twice, and a SINGLE unlock leaves it held.
 // d-cron's elector must never rely on unlock-count semantics.
-func TestC07_ReentrantAdvisoryLock(t *testing.T) {
+func TestReentrantAdvisoryLock(t *testing.T) {
 	db := mustOpen(t)
 	ctx := context.Background()
 

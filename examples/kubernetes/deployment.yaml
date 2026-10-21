@@ -1,9 +1,6 @@
-# Placeholder Deployment scaffold for the 5-replica acceptance tests
-# (AC-01..AC-03 in the SDS). Replicas share one Postgres advisory-lock
-# namespace; exactly one becomes leader and runs the clock.
-#
-# The manifest is finalized once the scheduler core (Phase 1) lands and the
-# readiness/health probes are defined.
+# Deployment scaffold for multi-replica d-cron deployments.
+# Replicas share one Postgres advisory-lock namespace; exactly one
+# becomes leader and runs the clock.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,9 +24,9 @@ spec:
                 secretKeyRef:
                   name: d-cron-example
                   key: database-url
-            # Keepalives are MANDATORY (issue #14, SRS C-06): at PostgreSQL and
-            # Linux defaults a dead or partitioned leader holds the advisory
-            # lock for HOURS with no promotion.
+            # Keepalives are strongly recommended: at default OS settings,
+            # a dead or partitioned leader may hold the advisory lock for hours
+            # without triggering failover.
             - name: DSN_KEEPALIVES
               value: "keepalives=1&keepalives_idle=60&keepalives_interval=10&keepalives_count=3"
           ports:

@@ -1,7 +1,7 @@
 package dcron_test
 
 // Tests for AdminHandler: GET /status, POST /jobs/{name}/pause,
-// POST /jobs/{name}/resume, DELETE /jobs/{name} (issue #51, FR-605).
+// POST /jobs/{name}/resume, DELETE /jobs/{name}.
 
 import (
 	"context"

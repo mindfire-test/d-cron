@@ -18,11 +18,10 @@ type attemptResult struct {
 // never crashes the host, honours fn's context for timeout/cancellation, and
 // backs off between retries.
 //
-// Limitation (SDS §5.1 / issue #18): only a panic on the job's own goroutine is
-// recovered and turned into a *PanicError. A panic on a goroutine the job
-// itself spawns cannot be recovered by Go and will terminate the process; the
-// job-authoring guide (#30) requires jobs to recover inside any goroutine they
-// spawn.
+// Limitation: only a panic on the job's own goroutine is recovered and turned
+// into a *PanicError. A panic on a goroutine the job itself spawns cannot be
+// recovered by Go runtime mechanics and will terminate the process; job
+// implementations must recover inside any sub-goroutines they spawn.
 func Run(ctx context.Context, name string, fn Func, retry Retry) Result {
 	r := retry.withDefaults()
 	start := time.Now()
@@ -66,7 +65,7 @@ func wrapJobErr(name string, out Outcome, err error) error {
 	return err
 }
 
-// attemptCtx applies a per-attempt execution timeout using context.WithTimeout (issue #19, FR-304).
+// attemptCtx applies a per-attempt execution timeout using context.WithTimeout.
 // Defaults to 30 minutes, configurable per job via WithTimeout. Exceeding timeout cancels the job context.
 func attemptCtx(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if timeout > 0 {
@@ -91,7 +90,7 @@ func runAttempt(ctx context.Context, name string, fn Func) (Outcome, []byte, err
 	ch := make(chan attemptResult, 1)
 	go func() {
 		defer func() {
-			if r := recover(); r != nil { // issue #18, FR-302: deferred recover() boundary
+			if r := recover(); r != nil { // deferred recover() boundary protects host process
 				ch <- attemptResult{
 					val:   r,
 					stack: stackDump(), // captures debug.Stack() before unwinding

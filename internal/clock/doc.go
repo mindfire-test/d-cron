@@ -3,5 +3,5 @@
 // and the schedule implementations (cron and interval).
 //
 // The package is deliberately database-free so it can be unit tested in
-// isolation; the elector owns leadership and the clock owns "when". See SDS §4.
+// isolation; the elector owns leadership and the clock owns "when".
 package clock

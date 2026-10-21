@@ -10,10 +10,10 @@ import (
 	dcron "github.com/mindfire-test/d-cron/dcron"
 )
 
-// TestAC09_ZeroTablesAfterLifecycle asserts the AC-09 guarantee: a full
-// Phase-1 lifecycle with history DISABLED leaves zero d-cron tables in any
-// user schema — the library must not litter the operator's database.
-func TestAC09_ZeroTablesAfterLifecycle(t *testing.T) {
+// TestZeroTablesAfterLifecycle asserts that a full
+// lifecycle with history disabled leaves zero d-cron tables in any
+// user schema — the library must not create unexpected tables in the operator's database.
+func TestZeroTablesAfterLifecycle(t *testing.T) {
 	ctx := context.Background()
 	db := mustOpen(t)
 
@@ -48,6 +48,6 @@ func TestAC09_ZeroTablesAfterLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if n != 0 {
-		t.Fatalf("found %d d-cron tables after lifecycle; want 0 (AC-09)", n)
+		t.Fatalf("found %d d-cron tables after lifecycle; want 0", n)
 	}
 }

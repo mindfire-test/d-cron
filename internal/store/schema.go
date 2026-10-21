@@ -13,9 +13,8 @@ import (
 var schemaID = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 // ErrInvalidSchema is returned when the configured schema name fails the
-// allowlist (issue #34): non-lowercase identifiers, quoted identifiers, and
-// anything else that would allow an injection are refused rather than
-// interpolated.
+// allowlist: non-lowercase identifiers, quoted identifiers, and anything else
+// that could allow an injection are refused rather than interpolated.
 var ErrInvalidSchema = errors.New("store: schema name must be a lowercase SQL identifier")
 
 func validateSchema(schema string) error {
@@ -32,8 +31,7 @@ func validateSchema(schema string) error {
 // migrations for one schema name. It is distinct from the leadership key for
 // the same application namespace because it hashes a different input
 // ("d-cron:migration:<schema>" vs "d-cron:v1:<namespace>"), so acquiring a
-// leadership lock never blocks a migration and vice versa (SDS §10, issue
-// #34/FR-504).
+// leadership lock never blocks a migration and vice versa.
 func SchemaLockKey(schema string) int64 {
 	return elector.LockKey("d-cron:migration:" + schema)
 }
@@ -69,7 +67,7 @@ func MigrationDDL(schema string) []string {
 }
 
 // Migrate creates the schema and table if they do not exist, guarded by a
-// separate advisory lock so N replicas starting at once do not race (SDS §10).
+// separate advisory lock so N replicas starting at once do not race.
 // It is safe to call from every replica at startup: the DDL is idempotent and
 // the lock serialises the CREATEs. The lock is released before returning, so
 // the reserved connection is returned to the pool cleanly.

@@ -1,5 +1,5 @@
 // Command pgx demonstrates running d-cron with github.com/jackc/pgx/v5 as the
-// PostgreSQL driver (issues #24/#27, FR-506).
+// PostgreSQL driver.
 //
 // The core library stays database/sql-based and dependency-free; this module
 // imports pgx so applications that prefer lib/pq never link it. The stdlib

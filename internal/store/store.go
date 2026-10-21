@@ -11,7 +11,7 @@ import (
 // ErrFenced is returned when a write is rejected because the leader epoch is stale.
 var ErrFenced = errors.New("store: fenced write rejected due to stale leader epoch")
 
-// Status is the terminal state of one execution row (SDS §10, issue #35).
+// Status is the terminal state of one execution row.
 type Status string
 
 const (
@@ -23,7 +23,7 @@ const (
 	StatusTimeout  Status = "timeout"
 )
 
-// Execution is the value written to the dcron.execution table (SDS §10).
+// Execution is the value written to the execution table.
 type Execution struct {
 	Namespace   string
 	JobName     string
@@ -39,7 +39,7 @@ type Execution struct {
 }
 
 // Store persists and prunes execution history in the configured schema. It is
-// created by New and never used unless history is enabled (opt-in, SDS §10).
+// created by New and used when history tracking is enabled.
 type Store struct {
 	db     *sql.DB
 	schema string
@@ -67,7 +67,7 @@ func New(db *sql.DB, schema string) (*Store, error) {
 }
 
 // IncrementEpoch increments and returns the leader epoch for a namespace upon
-// leadership acquisition (issue #41, FR-110, FR-507).
+// leadership acquisition.
 func (s *Store) IncrementEpoch(ctx context.Context, namespace, instanceID string) (int64, error) {
 	q := `INSERT INTO ` + s.epoch + ` (namespace, epoch, instance_id, acquired_at)
 		VALUES ($1, 1, $2, now())
@@ -88,7 +88,7 @@ func (s *Store) Schema() string { return s.schema }
 
 // Record inserts the opening "status = running" row guarded by the leader epoch.
 // If the epoch is stale (demoted leader), zero rows are inserted and ErrFenced
-// is returned (issue #42, FR-310).
+// is returned.
 func (s *Store) Record(ctx context.Context, e Execution) (int64, error) {
 	q := `INSERT INTO ` + s.exec + `
 		(namespace, job_name, scheduled_at, started_at, status, attempt, instance_id, leader_epoch)
@@ -115,7 +115,7 @@ func (s *Store) Record(ctx context.Context, e Execution) (int64, error) {
 
 // Finish updates a running row to its terminal state guarded by current epoch.
 // It reports how many rows were affected so the caller can detect a fenced write
-// (zero rows ⇒ stale epoch, issue #42, FR-310).
+// (zero rows indicates a stale epoch).
 func (s *Store) Finish(ctx context.Context, id int64, e Execution) (int64, error) {
 	q := `UPDATE ` + s.exec + `
 		SET status = $1, finished_at = $2, duration_ms = $3, error = NULLIF($4, ''), attempt = $5
@@ -137,7 +137,7 @@ func (s *Store) Finish(ctx context.Context, id int64, e Execution) (int64, error
 
 // Recent returns the most recent executions for a namespace and job (empty job
 // matches all), ordered by scheduled_at descending, limited to limit rows. It
-// backs the dashboard history panel (issue #35/FR-406).
+// backs the dashboard history panel.
 func (s *Store) Recent(ctx context.Context, namespace, job string, limit int) ([]Execution, error) {
 	if limit <= 0 {
 		limit = 50
@@ -179,8 +179,8 @@ func (s *Store) Recent(ctx context.Context, namespace, job string, limit int) ([
 }
 
 // Prune deletes finished executions older than retention, returning how many
-// rows were removed. It runs on the leader as an internal job (SDS §10, issue
-// #35). A zero-length retention disables pruning (returns 0, nil).
+// rows were removed. It runs on the leader as an internal background job.
+// A zero-length retention disables pruning (returns 0, nil).
 func (s *Store) Prune(ctx context.Context, namespace string, retention time.Duration) (int64, error) {
 	if retention <= 0 {
 		return 0, nil

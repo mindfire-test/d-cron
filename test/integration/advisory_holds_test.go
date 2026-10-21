@@ -10,14 +10,13 @@ import (
 )
 
 // TestAdvisoryHoldsLockRoundTrip pins the pg_locks ownership probe used by the
-// elector's leader self-check (issue #6, SDS §3.5). Regression for a real
-// bug found running the #28 suite: the single-bigint advisory lock is stored
-// split as two signed int4 halves (classid = key>>32, objid = key&0xFFFFFFFF),
-// so the low half can be NEGATIVE. An exact bigint comparison then never
-// matches for keys whose low word has bit 31 set — HoldsLock falsely reported
-// "not held" on the session that actually owned the lock, the leader demoted
-// on every poll, and failover deadlocked. Each key below must report held by
-// its own holder and not-held after release.
+// elector's leader self-check. Regression check for advisory lock storage:
+// the single-bigint advisory lock is stored split as two signed int4 halves
+// (classid = key>>32, objid = key&0xFFFFFFFF), so the low half can be NEGATIVE.
+// An exact bigint comparison then never matches for keys whose low word has bit 31
+// set — HoldsLock falsely reported "not held" on the session that actually owned the
+// lock, causing unwanted demotions. Each key below must report held by its own
+// holder and not-held after release.
 func TestAdvisoryHoldsLockRoundTrip(t *testing.T) {
 	db := mustOpen(t)
 	ctx := context.Background()
