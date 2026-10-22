@@ -93,7 +93,10 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 
-	if err := scheduler.Stop(); err != nil {
+	drainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := scheduler.Stop(drainCtx); err != nil {
 		log.Printf("Scheduler shutdown warning: %v", err)
 	}
 }

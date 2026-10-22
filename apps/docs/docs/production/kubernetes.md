@@ -208,7 +208,10 @@ scheduler.Start(context.Background())
 log.Println("Shutting down d-cron scheduler...")
 
 // Stop drains active jobs up to configured DrainTimeout (default: 30s)
-if err := scheduler.Stop(); err != nil {
+drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+
+if err := scheduler.Stop(drainCtx); err != nil {
     log.Printf("Error stopping scheduler: %v", err)
 }
 ```

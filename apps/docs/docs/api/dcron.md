@@ -53,7 +53,7 @@ func (s *Scheduler) Remove(name string) error
 
 // Lifecycle
 func (s *Scheduler) Start(ctx context.Context) error
-func (s *Scheduler) Stop() error
+func (s *Scheduler) Stop(ctx context.Context) error
 func (s *Scheduler) Leadership() LeadershipState
 func (s *Scheduler) HealthCheck(ctx context.Context) error
 

@@ -123,7 +123,10 @@ signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 <-sigChan
 
 // Stop gracefully drains in-flight jobs and releases the PostgreSQL advisory lock
-if err := scheduler.Stop(); err != nil {
+drainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+if err := scheduler.Stop(drainCtx); err != nil {
 	log.Printf("Scheduler shutdown warning: %v", err)
 }
 ```
