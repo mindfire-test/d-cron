@@ -49,7 +49,7 @@ func TestRegistrationConsistency_SinceSuccessRequiresHistory(t *testing.T) {
 // 2. Point 2: Retry API Semantics
 func TestRetryAPI_WithNoRetry(t *testing.T) {
 	var attempts atomic.Int64
-	var completedCh = make(chan dcron.Result, 1)
+	completedCh := make(chan dcron.Result, 1)
 
 	s := testScheduler(newSchedBackend(), dcron.WithHooks(dcron.HookFunc(func(_ context.Context, res dcron.Result) error {
 		completedCh <- res
@@ -90,7 +90,7 @@ func TestRetryAPI_WithNoRetry(t *testing.T) {
 func TestRetryAPI_RetryableFilter(t *testing.T) {
 	errFatal := errors.New("fatal domain error")
 	var attempts atomic.Int64
-	var completedCh = make(chan dcron.Result, 1)
+	completedCh := make(chan dcron.Result, 1)
 
 	s := testScheduler(newSchedBackend(), dcron.WithHooks(dcron.HookFunc(func(_ context.Context, res dcron.Result) error {
 		completedCh <- res
