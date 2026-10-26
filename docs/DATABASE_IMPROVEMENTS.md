@@ -194,9 +194,8 @@ Standby replicas reject direct mutation calls with `ErrNotLeader` (HTTP 409 Conf
 - **Affected Files:** `SECURITY.md`, `apps/docs/docs/security.md`
 - **Finding Details:** The repository previously directed users to report security vulnerabilities via public GitHub issues (`https://github.com/mindfire-test/d-cron/issues`).
 - **Resolution:**
-  - Restored root `SECURITY.md` establishing private reporting routes:
-    1. GitHub Private Vulnerability Reporting: `https://github.com/mindfire-test/d-cron/security/advisories/new`
-    2. Maintainer security contact: `security@mindfiredigital.com`
+  - Restored root `SECURITY.md` establishing private reporting route:
+    - GitHub Private Vulnerability Reporting: `https://github.com/mindfire-test/d-cron/security/advisories/new`
   - Explicitly prohibited public issues/PRs for vulnerability reports.
   - Synchronized `apps/docs/docs/security.md` with identical private reporting instructions and guidance.
 

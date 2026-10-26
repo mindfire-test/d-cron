@@ -16,12 +16,9 @@ The `d-cron` team takes the security of our library seriously. If you discover a
 
 ### How to Report Privately
 
-Please submit vulnerability reports through one of the following private channels:
+Please submit vulnerability reports through GitHub Private Vulnerability Reporting:
 
-1. **GitHub Private Vulnerability Reporting (Recommended)**:
-   Open a private advisory report at [https://github.com/mindfire-test/d-cron/security/advisories/new](https://github.com/mindfire-test/d-cron/security/advisories/new).
-2. **Security Contact Email**:
-   Email details directly to maintainers at `security@mindfiredigital.com`.
+Open a private advisory report at [https://github.com/mindfire-test/d-cron/security/advisories/new](https://github.com/mindfire-test/d-cron/security/advisories/new).
 
 ### Information to Include
 
