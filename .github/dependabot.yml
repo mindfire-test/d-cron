@@ -1,0 +1,51 @@
+version: 2
+updates:
+  # Maintain GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Maintain Go dependencies in root module
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Maintain Go dependencies in test/integration
+  - package-ecosystem: "gomod"
+    directory: "/test/integration"
+    schedule:
+      interval: "weekly"
+
+  # Maintain Go dependencies in examples
+  - package-ecosystem: "gomod"
+    directory: "/examples/minimal"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "gomod"
+    directory: "/examples/kubernetes"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "gomod"
+    directory: "/examples/pgx"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "gomod"
+    directory: "/examples/prometheus-adapter"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "gomod"
+    directory: "/examples/with-dashboard"
+    schedule:
+      interval: "weekly"
+
+  # Maintain npm dependencies in documentation
+  - package-ecosystem: "npm"
+    directory: "/apps/docs"
+    schedule:
+      interval: "weekly"

@@ -2,6 +2,9 @@
 /d-cron
 /examples/pgx/pgx
 /examples/prometheus-adapter/prometheus-adapter
+/examples/minimal/minimal
+/examples/kubernetes/kubernetes
+/examples/with-dashboard/with-dashboard
 *.exe
 *.test
 *.out

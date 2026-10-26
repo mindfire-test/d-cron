@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	defaultDBTimeout    = 5 * time.Second
 	defaultPruneTimeout = 15 * time.Second
 )
 
@@ -51,7 +50,7 @@ func (s *Scheduler) runLoop() {
 			epoch := s.currentEpoch
 			s.mu.Unlock()
 			if s.store != nil && epoch == 0 {
-				epochCtx, cancel := context.WithTimeout(s.runCtx, defaultDBTimeout)
+				epochCtx, cancel := context.WithTimeout(s.runCtx, s.opts.dbTimeout)
 				dbEpoch, err := s.store.IncrementEpoch(epochCtx, s.opts.namespace, s.opts.instance)
 				cancel()
 				if err == nil {
@@ -63,6 +62,7 @@ func (s *Scheduler) runLoop() {
 						el.SetEpoch(dbEpoch)
 					}
 					s.opts.logger.Info("dcron: leader epoch incremented on retry", "epoch", dbEpoch)
+					s.reconcileJobStates(dbEpoch)
 				}
 			}
 			if s.store == nil || epoch > 0 {
@@ -83,7 +83,7 @@ func (s *Scheduler) runLoop() {
 func (s *Scheduler) onPromotion(electorEpoch int64) {
 	epoch := electorEpoch
 	if s.store != nil {
-		epochCtx, cancel := context.WithTimeout(s.runCtx, defaultDBTimeout)
+		epochCtx, cancel := context.WithTimeout(s.runCtx, s.opts.dbTimeout)
 		dbEpoch, err := s.store.IncrementEpoch(epochCtx, s.opts.namespace, s.opts.instance)
 		cancel()
 		if err == nil {
@@ -109,6 +109,7 @@ func (s *Scheduler) onPromotion(electorEpoch int64) {
 	s.opts.rec.LeaderTransition(s.opts.instance)
 
 	if epoch > 0 {
+		s.reconcileJobStates(epoch)
 		s.catchUpMissedRuns(epoch)
 	}
 }
@@ -120,7 +121,10 @@ func (s *Scheduler) catchUpMissedRuns(epoch int64) {
 	s.mu.Lock()
 	jobs := make([]*Job, 0, len(s.jobs))
 	for _, j := range s.jobs {
-		if j.missedPolicy == MissedCatchUp {
+		j.statusMu.Lock()
+		paused := j.paused
+		j.statusMu.Unlock()
+		if !paused && j.missedPolicy == MissedCatchUp {
 			jobs = append(jobs, j)
 		}
 	}
@@ -130,7 +134,7 @@ func (s *Scheduler) catchUpMissedRuns(epoch int64) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(s.runCtx, defaultDBTimeout)
+	ctx, cancel := context.WithTimeout(s.runCtx, s.opts.dbTimeout)
 	defer cancel()
 
 	now := time.Now().In(s.opts.location)
@@ -300,7 +304,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 			if s.store == nil {
 				return
 			}
-			recordCtx, cancel := context.WithTimeout(ctx, defaultDBTimeout)
+			recordCtx, cancel := context.WithTimeout(ctx, s.opts.dbTimeout)
 			row, err := s.store.Record(recordCtx, store.Execution{
 				Namespace:   s.opts.namespace,
 				JobName:     j.name,
@@ -345,7 +349,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 
 		s.opts.rec.JobFinished(j.name, outcomeToMetric(res.Outcome), res.Duration, res.Outcome == executor.OutcomeOK)
 		if s.store != nil && rowID != 0 {
-			finishCtx, cancel := context.WithTimeout(context.Background(), defaultDBTimeout)
+			finishCtx, cancel := context.WithTimeout(context.Background(), s.opts.dbTimeout)
 			rows, err := s.store.Finish(finishCtx, rowID, store.Execution{
 				Namespace:  s.opts.namespace,
 				Status:     historyStatus(res.Outcome),

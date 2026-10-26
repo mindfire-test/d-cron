@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -101,6 +102,37 @@ func TestHealthCheckNilDBPassthrough(t *testing.T) {
 	s := testScheduler(newSchedBackend())
 	if err := s.HealthCheck(context.Background()); err != nil {
 		t.Fatalf("HealthCheck with no db: %v", err)
+	}
+}
+
+type pingableTestBackend struct {
+	schedBackend
+	pingErr error
+}
+
+func (p *pingableTestBackend) Ping(_ context.Context) error {
+	return p.pingErr
+}
+
+func TestHealthCheck_DedicatedLockConnectionBroken(t *testing.T) {
+	backend := &pingableTestBackend{pingErr: errors.New("broken lock socket")}
+	s := testScheduler(backend)
+
+	err := s.HealthCheck(context.Background())
+	if err == nil {
+		t.Fatal("HealthCheck expected error for broken dedicated lock connection, got nil")
+	}
+	if !strings.Contains(err.Error(), "dedicated lock connection") {
+		t.Fatalf("HealthCheck error = %v; want dedicated lock connection mention", err)
+	}
+}
+
+func TestHealthCheck_DedicatedLockConnectionHealthy(t *testing.T) {
+	backend := &pingableTestBackend{pingErr: nil}
+	s := testScheduler(backend)
+
+	if err := s.HealthCheck(context.Background()); err != nil {
+		t.Fatalf("HealthCheck expected nil error, got: %v", err)
 	}
 }
 
@@ -282,4 +314,126 @@ func TestAddOnceDuplicateName(t *testing.T) {
 	if err := s.AddOnce("dup", at.Add(time.Hour), noop); !errIs(err, dcron.ErrJobExists) {
 		t.Fatalf("duplicate AddOnce err = %v; want dcron.ErrJobExists", err)
 	}
+}
+
+func TestRedactError(t *testing.T) {
+	if got := dcron.RedactError(nil); got != "" {
+		t.Fatalf("RedactError(nil) = %q; want empty string", got)
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "clean error unchanged",
+			input:    "context deadline exceeded",
+			expected: "context deadline exceeded",
+		},
+		{
+			name:     "postgres url dsn password",
+			input:    "dial tcp: lookup postgres://app_user:s3cr3t_pass@postgres.internal:5432/orders_db?sslmode=require: no such host",
+			expected: "dial tcp: lookup postgres://app_user:[REDACTED]@postgres.internal:5432/orders_db?sslmode=require: no such host",
+		},
+		{
+			name:     "bearer token in http error",
+			input:    "request failed with header Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xyz status 401",
+			expected: "request failed with header Authorization: Bearer [REDACTED] status 401",
+		},
+		{
+			name:     "key value credentials",
+			input:    "auth failed: password=superSecretPass123! token=ghp_abcdef123456 api_key=sk_live_xyz789 user=bob",
+			expected: "auth failed: password=[REDACTED] token=[REDACTED] api_key=[REDACTED] user=bob",
+		},
+		{
+			name:     "multiline error with stack and dsn",
+			input:    "job failed with:\nconnect error: postgresql://admin:p@ssword!@db:5432/prod\napi error: token: secret-token-42",
+			expected: "job failed with:\nconnect error: postgresql://admin:[REDACTED]@db:5432/prod\napi error: token: [REDACTED]",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := dcron.RedactError(errors.New(tc.input))
+			if got != tc.expected {
+				t.Fatalf("RedactError:\n got:  %q\n want: %q", got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestWebhookHook_Redaction(t *testing.T) {
+	var receivedBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sensitiveErr := errors.New("failed connect to postgres://user:superSecretPassword@10.0.0.1:5432/db with token=secret123")
+
+	t.Run("default redaction", func(t *testing.T) {
+		w := &dcron.WebhookHook{
+			URL:     srv.URL,
+			Timeout: 2 * time.Second,
+		}
+		err := w.Fire(context.Background(), dcron.Result{
+			Name:    "redacted-job",
+			Outcome: dcron.OutcomeFailed,
+			Error:   sensitiveErr,
+		})
+		if err != nil {
+			t.Fatalf("Fire: %v", err)
+		}
+		errStr, _ := receivedBody["error"].(string)
+		if strings.Contains(errStr, "superSecretPassword") || strings.Contains(errStr, "secret123") {
+			t.Fatalf("leaked secret in error payload: %q", errStr)
+		}
+		if !strings.Contains(errStr, "[REDACTED]") {
+			t.Fatalf("expected [REDACTED] in error payload: %q", errStr)
+		}
+	})
+
+	t.Run("opt-in raw error", func(t *testing.T) {
+		w := &dcron.WebhookHook{
+			URL:             srv.URL,
+			Timeout:         2 * time.Second,
+			IncludeRawError: true,
+		}
+		err := w.Fire(context.Background(), dcron.Result{
+			Name:    "raw-job",
+			Outcome: dcron.OutcomeFailed,
+			Error:   sensitiveErr,
+		})
+		if err != nil {
+			t.Fatalf("Fire: %v", err)
+		}
+		errStr, _ := receivedBody["error"].(string)
+		if errStr != sensitiveErr.Error() {
+			t.Fatalf("got raw error %q; want %q", errStr, sensitiveErr.Error())
+		}
+	})
+
+	t.Run("custom RedactFunc", func(t *testing.T) {
+		w := &dcron.WebhookHook{
+			URL:     srv.URL,
+			Timeout: 2 * time.Second,
+			RedactFunc: func(e error) string {
+				return "CUSTOM_MASKED"
+			},
+		}
+		err := w.Fire(context.Background(), dcron.Result{
+			Name:    "custom-mask-job",
+			Outcome: dcron.OutcomeFailed,
+			Error:   sensitiveErr,
+		})
+		if err != nil {
+			t.Fatalf("Fire: %v", err)
+		}
+		errStr, _ := receivedBody["error"].(string)
+		if errStr != "CUSTOM_MASKED" {
+			t.Fatalf("got error %q; want CUSTOM_MASKED", errStr)
+		}
+	})
 }

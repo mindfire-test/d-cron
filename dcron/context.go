@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/mindfire-test/d-cron/internal/store"
 )
 
 type (
@@ -59,15 +61,18 @@ func Fence(ctx context.Context, tx Querier) error {
 
 /* FenceSchema behaves as Fence but allows specifying a custom schema name. */
 func FenceSchema(ctx context.Context, tx Querier, schema string) error {
+	if schema == "" {
+		schema = "dcron"
+	}
+	if err := store.ValidateSchema(schema); err != nil {
+		return fmt.Errorf("dcron: %w", err)
+	}
 	epoch := Epoch(ctx)
 	if epoch == 0 {
 		return nil
 	}
 	namespace := NamespaceKey(ctx)
-	if schema == "" {
-		schema = "dcron"
-	}
-	q := `SELECT epoch FROM ` + schema + `.leader_epoch WHERE namespace = $1 FOR SHARE`
+	q := `SELECT epoch FROM ` + store.QuoteIdent(schema) + `.` + store.QuoteIdent("leader_epoch") + ` WHERE namespace = $1 FOR SHARE`
 	var dbEpoch int64
 	if err := tx.QueryRowContext(ctx, q, namespace).Scan(&dbEpoch); err != nil {
 		return fmt.Errorf("dcron: fence check failed: %w", err)

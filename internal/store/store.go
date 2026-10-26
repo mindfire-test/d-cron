@@ -44,8 +44,9 @@ type Store struct {
 	db     *sql.DB
 	schema string
 
-	exec  string
-	epoch string
+	exec     string
+	epoch    string
+	jobState string
 }
 
 // New returns a Store over db using schema (default "dcron"). It validates the
@@ -58,11 +59,13 @@ func New(db *sql.DB, schema string) (*Store, error) {
 	if err := validateSchema(schema); err != nil {
 		return nil, err
 	}
+	qSchema := quoteIdent(schema)
 	return &Store{
-		db:     db,
-		schema: schema,
-		exec:   schema + ".execution",
-		epoch:  schema + ".leader_epoch",
+		db:       db,
+		schema:   schema,
+		exec:     qSchema + "." + quoteIdent("execution"),
+		epoch:    qSchema + "." + quoteIdent("leader_epoch"),
+		jobState: qSchema + "." + quoteIdent("job_state"),
 	}, nil
 }
 
@@ -181,20 +184,125 @@ func (s *Store) Recent(ctx context.Context, namespace, job string, limit int) ([
 // Prune deletes finished executions older than retention, returning how many
 // rows were removed. It runs on the leader as an internal background job.
 // A zero-length retention disables pruning (returns 0, nil).
+//
+// Pruning is executed in bounded batches to prevent large database lock hold times
+// and excessive WAL generation. In addition to finished executions, orphaned 'running'
+// executions older than retention (from crashed or fenced replicas) are also cleaned up.
 func (s *Store) Prune(ctx context.Context, namespace string, retention time.Duration) (int64, error) {
+	return s.PruneBatch(ctx, namespace, retention, 1000)
+}
+
+// PruneBatch deletes executions older than retention in batches up to batchSize.
+func (s *Store) PruneBatch(ctx context.Context, namespace string, retention time.Duration, batchSize int) (int64, error) {
 	if retention <= 0 {
 		return 0, nil
 	}
-	q := `DELETE FROM ` + s.exec + `
-		WHERE namespace = $1 AND status <> $2
-		  AND finished_at < now() - ($3 * interval '1 millisecond')`
-	res, err := s.db.ExecContext(ctx, q, namespace, string(StatusRunning), retention.Milliseconds())
-	if err != nil {
-		return 0, fmt.Errorf("store: prune executions: %w", err)
+	if batchSize <= 0 {
+		batchSize = 1000
 	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("store: prune rows: %w", err)
+	var totalDeleted int64
+	for {
+		q := `DELETE FROM ` + s.exec + `
+			WHERE id IN (
+				SELECT id FROM (
+					SELECT id FROM ` + s.exec + `
+					WHERE namespace = $1
+					  AND status <> $2
+					  AND finished_at < now() - ($3 * interval '1 millisecond')
+					UNION ALL
+					SELECT id FROM ` + s.exec + `
+					WHERE namespace = $1
+					  AND status = $2
+					  AND started_at < now() - ($3 * interval '1 millisecond')
+				) AS candidates
+				ORDER BY id ASC
+				LIMIT $4
+			)`
+		res, err := s.db.ExecContext(ctx, q, namespace, string(StatusRunning), retention.Milliseconds(), batchSize)
+		if err != nil {
+			return totalDeleted, fmt.Errorf("store: prune executions: %w", err)
+		}
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return totalDeleted, fmt.Errorf("store: prune rows: %w", err)
+		}
+		totalDeleted += rows
+		if rows < int64(batchSize) {
+			break
+		}
+		if ctx.Err() != nil {
+			return totalDeleted, ctx.Err()
+		}
 	}
-	return rows, nil
+	return totalDeleted, nil
+}
+
+// JobState represents the persisted administrative and dynamic state of a job.
+type JobState struct {
+	Namespace string
+	JobName   string
+	Paused    bool
+	Removed   bool
+	Spec      string
+	UpdatedAt time.Time
+}
+
+// SaveJobState upserts the durable job state for a given namespace and job.
+func (s *Store) SaveJobState(ctx context.Context, js JobState) error {
+	q := `INSERT INTO ` + s.jobState + ` (namespace, job_name, paused, removed, spec, updated_at)
+		VALUES ($1, $2, $3, $4, $5, now())
+		ON CONFLICT (namespace, job_name) DO UPDATE
+		  SET paused     = EXCLUDED.paused,
+		      removed    = EXCLUDED.removed,
+		      spec       = CASE WHEN EXCLUDED.spec <> '' THEN EXCLUDED.spec ELSE ` + s.jobState + `.spec END,
+		      updated_at = now()`
+	_, err := s.db.ExecContext(ctx, q, js.Namespace, js.JobName, js.Paused, js.Removed, js.Spec)
+	if err != nil {
+		return fmt.Errorf("store: save job state: %w", err)
+	}
+	return nil
+}
+
+// GetJobState fetches the durable job state for a specific job in namespace.
+// If the job does not exist in the database, it returns nil, nil.
+func (s *Store) GetJobState(ctx context.Context, namespace, jobName string) (*JobState, error) {
+	q := `SELECT namespace, job_name, paused, removed, spec, updated_at
+	      FROM ` + s.jobState + `
+	      WHERE namespace = $1 AND job_name = $2`
+	var js JobState
+	err := s.db.QueryRowContext(ctx, q, namespace, jobName).Scan(
+		&js.Namespace, &js.JobName, &js.Paused, &js.Removed, &js.Spec, &js.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("store: get job state: %w", err)
+	}
+	return &js, nil
+}
+
+// GetJobStates returns all durable job states registered in the given namespace.
+func (s *Store) GetJobStates(ctx context.Context, namespace string) (map[string]JobState, error) {
+	q := `SELECT namespace, job_name, paused, removed, spec, updated_at
+	      FROM ` + s.jobState + `
+	      WHERE namespace = $1`
+	rows, err := s.db.QueryContext(ctx, q, namespace)
+	if err != nil {
+		return nil, fmt.Errorf("store: get job states: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]JobState)
+	for rows.Next() {
+		var js JobState
+		if err := rows.Scan(&js.Namespace, &js.JobName, &js.Paused, &js.Removed, &js.Spec, &js.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan job state: %w", err)
+		}
+		out[js.JobName] = js
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: get job states rows: %w", err)
+	}
+	return out, nil
 }

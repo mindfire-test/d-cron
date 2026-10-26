@@ -27,6 +27,7 @@ type Scheduler struct {
 	currentEpoch int64
 	clk          *clock.Queue
 	jobs         map[string]*Job
+	handlers     map[string]JobFunc
 	leader       elector.Coordinator
 	group        *executor.Group
 
@@ -69,6 +70,11 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil && conn != nil {
+			_ = conn.Close()
+		}
+	}()
 
 	elector.WarnKeepalive(startupCtx, elector.NewSQLConn(conn), cfg.logger)
 
@@ -102,14 +108,19 @@ func newWithBackend(backend elector.Backend, db *sql.DB, cfg options, hist *stor
 	if cfg.pollTimeout > 0 {
 		el.SetProbeTimeout(cfg.pollTimeout)
 	}
+	handlers := make(map[string]JobFunc)
+	for k, v := range cfg.handlers {
+		handlers[k] = v
+	}
 	return &Scheduler{
-		opts:   cfg,
-		db:     db,
-		store:  hist,
-		clk:    &clock.Queue{},
-		jobs:   make(map[string]*Job),
-		leader: el,
-		done:   make(chan struct{}),
+		opts:     cfg,
+		db:       db,
+		store:    hist,
+		clk:      &clock.Queue{},
+		jobs:     make(map[string]*Job),
+		handlers: handlers,
+		leader:   el,
+		done:     make(chan struct{}),
 	}
 }
 
@@ -167,6 +178,7 @@ func (s *Scheduler) registerJobLocked(name, spec string, fn JobFunc, opts ...Job
 		return fmt.Errorf("dcron: WithSinceLastSuccess requires history store (WithHistory option)")
 	}
 	s.jobs[name] = j
+	s.handlers[name] = fn
 	if first := j.sched.Next(time.Now().In(s.opts.location)); !first.IsZero() {
 		j.nextRun = first
 		heap.Push(s.clk, &clock.Job{Name: name, FireAt: first, Sched: j.sched})
@@ -257,6 +269,11 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 	if err := s.leader.Close(); err != nil && firstErr == nil {
 		firstErr = err
 	}
+	if s.opts.lockCloser != nil {
+		if err := s.opts.lockCloser(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
 	return firstErr
 }
 
@@ -270,6 +287,19 @@ func (s *Scheduler) Pause(name string) error {
 	j, ok := s.jobs[name]
 	if !ok {
 		return &JobNotFoundError{Name: name}
+	}
+	if s.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), s.opts.dbTimeout)
+		defer cancel()
+		err := s.store.SaveJobState(ctx, store.JobState{
+			Namespace: s.opts.namespace,
+			JobName:   name,
+			Paused:    true,
+			Removed:   false,
+		})
+		if err != nil {
+			return fmt.Errorf("dcron: pause: %w", err)
+		}
 	}
 	j.statusMu.Lock()
 	j.paused = true
@@ -289,6 +319,19 @@ func (s *Scheduler) Resume(name string) error {
 	if !ok {
 		return &JobNotFoundError{Name: name}
 	}
+	if s.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), s.opts.dbTimeout)
+		defer cancel()
+		err := s.store.SaveJobState(ctx, store.JobState{
+			Namespace: s.opts.namespace,
+			JobName:   name,
+			Paused:    false,
+			Removed:   false,
+		})
+		if err != nil {
+			return fmt.Errorf("dcron: resume: %w", err)
+		}
+	}
 	j.statusMu.Lock()
 	j.paused = false
 	j.statusMu.Unlock()
@@ -306,6 +349,18 @@ func (s *Scheduler) Remove(name string) error {
 	if _, ok := s.jobs[name]; !ok {
 		return &JobNotFoundError{Name: name}
 	}
+	if s.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), s.opts.dbTimeout)
+		defer cancel()
+		err := s.store.SaveJobState(ctx, store.JobState{
+			Namespace: s.opts.namespace,
+			JobName:   name,
+			Removed:   true,
+		})
+		if err != nil {
+			return fmt.Errorf("dcron: remove: %w", err)
+		}
+	}
 	delete(s.jobs, name)
 	s.opts.logger.Info("dcron: job removed", "job", name)
 	return nil
@@ -318,9 +373,103 @@ func (s *Scheduler) AddDynamic(name, spec string, fn JobFunc, opts ...JobOption)
 	if s.started && s.Leadership() == LeadershipStandby {
 		return ErrNotLeader
 	}
+	if fn == nil {
+		return ErrNilJob
+	}
+	if _, exists := s.jobs[name]; exists {
+		return &JobExistsError{Name: name}
+	}
+	if s.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), s.opts.dbTimeout)
+		defer cancel()
+		st, err := s.store.GetJobState(ctx, s.opts.namespace, name)
+		if err != nil {
+			return fmt.Errorf("dcron: add dynamic check: %w", err)
+		}
+		if st != nil && !st.Removed {
+			return &JobExistsError{Name: name}
+		}
+		err = s.store.SaveJobState(ctx, store.JobState{
+			Namespace: s.opts.namespace,
+			JobName:   name,
+			Paused:    false,
+			Removed:   false,
+			Spec:      spec,
+		})
+		if err != nil {
+			return fmt.Errorf("dcron: add dynamic save: %w", err)
+		}
+	}
 	if err := s.registerJobLocked(name, spec, fn, opts...); err != nil {
 		return err
 	}
 	s.opts.logger.Info("dcron: job added dynamically", "job", name, "spec", spec)
 	return nil
+}
+
+// RegisterHandler associates a JobFunc with a job name so that if a dynamic job
+// was registered in the database, a standby promoted to leader can bind and run it.
+func (s *Scheduler) RegisterHandler(name string, fn JobFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if fn != nil {
+		s.handlers[name] = fn
+	}
+}
+
+// reconcileJobStates synchronizes in-memory jobs with durable database state upon leader promotion.
+func (s *Scheduler) reconcileJobStates(epoch int64) {
+	if s.store == nil || epoch <= 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.runCtx, s.opts.dbTimeout)
+	defer cancel()
+
+	states, err := s.store.GetJobStates(ctx, s.opts.namespace)
+	if err != nil {
+		s.opts.logger.Warn("dcron: failed to load job states on promotion", "err", err)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for name, st := range states {
+		j, ok := s.jobs[name]
+		if !ok {
+			if !st.Removed && st.Spec != "" {
+				fn, hasFn := s.handlers[name]
+				if hasFn && fn != nil {
+					if err := s.registerJobLocked(name, st.Spec, fn); err != nil {
+						s.opts.logger.Warn("dcron: failed to restore dynamic job on promotion", "job", name, "err", err)
+					} else {
+						s.opts.logger.Info("dcron: restored dynamic job on promotion", "job", name)
+						if st.Paused {
+							if dj, exists := s.jobs[name]; exists {
+								dj.statusMu.Lock()
+								dj.paused = true
+								dj.statusMu.Unlock()
+							}
+						}
+					}
+				} else {
+					s.opts.logger.Info("dcron: dynamic job found in db without registered handler on promoted replica", "job", name)
+				}
+			}
+			continue
+		}
+
+		if st.Removed {
+			delete(s.jobs, name)
+			s.opts.logger.Info("dcron: reconciled removed job on promotion", "job", name)
+			continue
+		}
+
+		j.statusMu.Lock()
+		if j.paused != st.Paused {
+			j.paused = st.Paused
+			s.opts.logger.Info("dcron: reconciled paused state on promotion", "job", name, "paused", st.Paused)
+		}
+		j.statusMu.Unlock()
+	}
 }

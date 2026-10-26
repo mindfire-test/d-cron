@@ -41,13 +41,17 @@ func (s *Scheduler) Leadership() LeadershipState {
 	}
 }
 
-// HealthCheck reports whether the coordination backend is reachable.
+// HealthCheck reports whether the application database pool and dedicated lock connection are reachable.
 func (s *Scheduler) HealthCheck(ctx context.Context) error {
-	if s.db == nil {
-		return nil
+	if s.db != nil {
+		if err := s.db.PingContext(ctx); err != nil {
+			return fmt.Errorf("dcron: health check failed: database pool: %w", err)
+		}
 	}
-	if err := s.db.PingContext(ctx); err != nil {
-		return fmt.Errorf("dcron: health check failed: %w", err)
+	if s.leader != nil {
+		if err := s.leader.Ping(ctx); err != nil {
+			return fmt.Errorf("dcron: health check failed: dedicated lock connection: %w", err)
+		}
 	}
 	return nil
 }

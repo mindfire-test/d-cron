@@ -3,7 +3,10 @@ package elector
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -36,6 +39,8 @@ type Backend interface {
 	Release(ctx context.Context, key int64) (bool, error)
 	// Close closes the underlying dedicated connection.
 	Close() error
+	// Ping tests whether the dedicated lock connection is alive.
+	Ping(ctx context.Context) error
 }
 
 type stdBackend struct {
@@ -79,6 +84,9 @@ func (b *stdBackend) Release(ctx context.Context, key int64) (bool, error) {
 	var released bool
 	err := b.conn.QueryRowContext(ctx, sqlRelease, key).Scan(&released)
 	if err != nil {
+		if errors.Is(err, driver.ErrBadConn) || errors.Is(err, sql.ErrConnDone) {
+			return false, nil
+		}
 		return false, fmt.Errorf("elector: release advisory lock: %w", err)
 	}
 	return released, nil
@@ -86,5 +94,17 @@ func (b *stdBackend) Release(ctx context.Context, key int64) (bool, error) {
 
 // Close implements Backend.
 func (b *stdBackend) Close() error {
-	return b.conn.Close()
+	err := b.conn.Close()
+	if err != nil && (errors.Is(err, sql.ErrConnDone) || errors.Is(err, driver.ErrBadConn) || strings.Contains(err.Error(), "already closed")) {
+		return nil
+	}
+	return err
+}
+
+// Ping implements Backend by testing the dedicated lock connection.
+func (b *stdBackend) Ping(ctx context.Context) error {
+	if b.conn == nil {
+		return sql.ErrConnDone
+	}
+	return b.conn.PingContext(ctx)
 }

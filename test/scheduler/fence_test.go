@@ -84,8 +84,8 @@ func TestFenceSchemaQueryBuilding(t *testing.T) {
 	// QueryRowContext returns nil sql.Row which panics on Scan, so we catch or verify query
 	defer func() {
 		_ = recover()
-		if !strings.Contains(mq.query, "my_custom_schema.leader_epoch") {
-			t.Errorf("query = %q; want my_custom_schema.leader_epoch", mq.query)
+		if !strings.Contains(mq.query, `"my_custom_schema"."leader_epoch"`) {
+			t.Errorf("query = %q; want \"my_custom_schema\".\"leader_epoch\"", mq.query)
 		}
 		if len(mq.args) != 1 || mq.args[0] != "app-ns" {
 			t.Errorf("args = %v; want [app-ns]", mq.args)
@@ -103,10 +103,67 @@ func TestFenceSchemaDefaultSchemaQueryBuilding(t *testing.T) {
 	mq := &mockRowQuerier{}
 	defer func() {
 		_ = recover()
-		if !strings.Contains(mq.query, "dcron.leader_epoch") {
-			t.Errorf("query = %q; want dcron.leader_epoch", mq.query)
+		if !strings.Contains(mq.query, `"dcron"."leader_epoch"`) {
+			t.Errorf("query = %q; want \"dcron\".\"leader_epoch\"", mq.query)
 		}
 	}()
 
 	_ = dcron.Fence(ctx, mq)
+}
+
+func TestFenceSchema_Validation(t *testing.T) {
+	t.Parallel()
+	ctx := dcron.WithEpoch(context.Background(), 1)
+	mq := &mockRowQuerier{}
+
+	invalidSchemas := []struct {
+		name   string
+		schema string
+	}{
+		{"public reserved", "public"},
+		{"SQL injection with semicolon", "dcron; DROP TABLE execution; --"},
+		{"quote escaping attempt", `dcron" --`},
+		{"uppercase characters", "DCRON"},
+		{"hyphen not allowed", "my-schema"},
+		{"starts with digit", "1_schema"},
+		{"contains spaces", "dcron schema"},
+		{"contains dot", "schema.table"},
+		{"contains null byte", "schema\x00"},
+		{"exceeds 63 chars", strings.Repeat("a", 64)},
+	}
+
+	for _, tc := range invalidSchemas {
+		t.Run("invalid_"+tc.name, func(t *testing.T) {
+			err := dcron.FenceSchema(ctx, mq, tc.schema)
+			if err == nil {
+				t.Fatalf("FenceSchema(%q): expected validation error, got nil", tc.schema)
+			}
+			if mq.query != "" {
+				t.Fatalf("FenceSchema(%q): query executed despite invalid schema: %s", tc.schema, mq.query)
+			}
+		})
+	}
+
+	// Test zero epoch also rejects invalid schema
+	zeroCtx := context.Background()
+	for _, tc := range invalidSchemas {
+		t.Run("zero_epoch_"+tc.name, func(t *testing.T) {
+			err := dcron.FenceSchema(zeroCtx, mq, tc.schema)
+			if err == nil {
+				t.Fatalf("FenceSchema zero epoch with invalid schema %q: expected error, got nil", tc.schema)
+			}
+		})
+	}
+
+	// Valid schemas
+	validSchemas := []string{"dcron", "custom_schema", "order", "user", "app_v2", ""}
+	for _, s := range validSchemas {
+		t.Run("valid_"+s, func(t *testing.T) {
+			// With zero epoch, valid schema returns nil without query execution
+			err := dcron.FenceSchema(zeroCtx, mq, s)
+			if err != nil {
+				t.Fatalf("FenceSchema(%q) with zero epoch: unexpected error: %v", s, err)
+			}
+		})
+	}
 }

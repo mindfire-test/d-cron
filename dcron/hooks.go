@@ -6,10 +6,35 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/mindfire-test/d-cron/internal/executor"
 )
+
+var (
+	// Redacts user:password in URLs (e.g. postgres://user:secret@host/db)
+	urlPasswordRegex = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^:/@\s]+):([^/\s]+)@`)
+
+	// Redacts Bearer tokens (e.g. "Bearer eyJhbG...")
+	bearerTokenRegex = regexp.MustCompile(`(?i)(bearer\s+)[A-Za-z0-9_\-\.]+`)
+
+	// Redacts key-value sensitive credentials (e.g. password=secret, token=xyz, api_key=abc)
+	kvCredentialRegex = regexp.MustCompile(`(?i)\b(password|passwd|pwd|secret|api[_-]?key|token)(\s*[:=]\s*)([^\s,;&"']+)`)
+)
+
+// RedactError sanitizes sensitive information such as database DSN credentials,
+// passwords, bearer tokens, and API keys from an error string while preserving the non-sensitive context.
+func RedactError(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	s = urlPasswordRegex.ReplaceAllString(s, "${1}:[REDACTED]@")
+	s = bearerTokenRegex.ReplaceAllString(s, "${1}[REDACTED]")
+	s = kvCredentialRegex.ReplaceAllString(s, "${1}${2}[REDACTED]")
+	return s
+}
 
 // Result is the terminal outcome of one logical job execution delivered to hooks.
 type Result struct {
@@ -77,10 +102,12 @@ type webhookPayload struct {
 
 // WebhookHook notifies an HTTP endpoint with a JSON POST on terminal job outcome.
 type WebhookHook struct {
-	URL     string
-	Timeout time.Duration
-	Client  *http.Client
-	Headers map[string]string
+	URL             string
+	Timeout         time.Duration
+	Client          *http.Client
+	Headers         map[string]string
+	IncludeRawError bool
+	RedactFunc      func(error) string
 }
 
 // Fire implements Hook by POSTing the outcome as JSON.
@@ -101,7 +128,13 @@ func (w *WebhookHook) Fire(ctx context.Context, res Result) error {
 		Time:       time.Now().UTC().Format(time.RFC3339),
 	}
 	if res.Error != nil {
-		body.Error = res.Error.Error()
+		if w.IncludeRawError {
+			body.Error = res.Error.Error()
+		} else if w.RedactFunc != nil {
+			body.Error = w.RedactFunc(res.Error)
+		} else {
+			body.Error = RedactError(res.Error)
+		}
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {

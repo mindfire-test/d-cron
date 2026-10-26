@@ -83,7 +83,8 @@ func (f *fakeBackend) Release(ctx context.Context, _ int64) (bool, error) {
 	return true, nil
 }
 
-func (f *fakeBackend) Close() error { return nil }
+func (f *fakeBackend) Close() error               { return nil }
+func (f *fakeBackend) Ping(context.Context) error { return nil }
 
 func TestLockKeyDeterministic(t *testing.T) {
 	a := elector.LockKey("billing")

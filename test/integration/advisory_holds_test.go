@@ -4,8 +4,11 @@ package integration
 
 import (
 	"context"
+	"database/sql"
+	"strings"
 	"testing"
 
+	"github.com/mindfire-test/d-cron/dcron"
 	"github.com/mindfire-test/d-cron/internal/elector"
 )
 
@@ -106,4 +109,47 @@ func uint64String(u uint64) string {
 		u >>= 4
 	}
 	return string(b[:])
+}
+
+func TestHealthCheck_DedicatedLockConnection(t *testing.T) {
+	db := mustOpen(t)
+	ctx := context.Background()
+
+	// 1. Healthy pool and healthy lock connection
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sched, err := dcron.New(db,
+		dcron.WithNamespace("it-healthcheck"),
+		dcron.WithDedicatedLockConn(func(ctx context.Context) (*sql.Conn, error) {
+			return conn, nil
+		}),
+	)
+	if err != nil {
+		_ = conn.Close()
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := sched.HealthCheck(ctx); err != nil {
+		t.Fatalf("HealthCheck expected healthy, got: %v", err)
+	}
+
+	// 2. Close ONLY the dedicated lock connection, while db pool remains open and healthy
+	_ = conn.Close()
+
+	// db pool ping still succeeds because db connection pool has fresh connections
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatalf("db pool ping failed: %v", err)
+	}
+
+	// HealthCheck MUST fail because dedicated lock connection is broken!
+	err = sched.HealthCheck(ctx)
+	if err == nil {
+		t.Fatal("HealthCheck expected failure when dedicated lock connection is closed, but got nil (pool masked broken connection!)")
+	}
+	if !strings.Contains(err.Error(), "dedicated lock connection") {
+		t.Fatalf("HealthCheck error = %v; want mention of dedicated lock connection", err)
+	}
 }

@@ -18,6 +18,7 @@ type Coordinator interface {
 	FinalizeDemotion()
 	Release(ctx context.Context) error
 	Close() error
+	Ping(ctx context.Context) error
 }
 
 // Compile-time check that Elector implements Coordinator.

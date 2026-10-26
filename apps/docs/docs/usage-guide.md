@@ -56,6 +56,9 @@ func createScheduler(db *sql.DB) (*dcron.Dcron, error) {
 | `WithSessionStableConnection()` | Pins the election loop to a dedicated, persistent `*sql.Conn` to prevent connection-pool recycling issues. | Enabled |
 | `WithLogger(logger)` | Integrates standard Go `log/slog` structured logging. | `slog.Default()` |
 | `WithTimeout(duration)` | Sets a global execution timeout for all jobs unless overridden per job. | None |
+| `WithDBTimeout(duration)` | Sets query timeout for epoch, history, and job state database operations. | `5s` |
+| `WithLeaderForwardURL(url)` | Configures the HTTP URL of the active leader (or leader service) for standby mutation forwarding. | None |
+| `WithJobHandler(name, fn)` | Registers a named handler function used when restoring dynamic jobs on failover. | None |
 | `WithOverlapPolicy(policy)` | Configures behavior when a job trigger arrives while the previous run is still active (`OverlapSkip` or `OverlapAllow`). | `OverlapSkip` |
 | `WithHistory(retention)` | Enables the persistent audit store to record execution logs and leader epochs in PostgreSQL. | Disabled |
 
@@ -131,20 +134,38 @@ if err := scheduler.Stop(drainCtx); err != nil {
 }
 ```
 
-## Runtime Job Controls
+## Runtime Job Controls & Durability
 
-d-cron allows dynamically inspecting, triggering, or removing jobs while the scheduler is running:
+d-cron allows dynamically inspecting, pausing, resuming, adding, and removing jobs while the scheduler is running:
 
 ```go
-// Manually trigger a job immediately outside its normal schedule
-err := scheduler.Trigger("nightly-backup")
+// Pause a job (persisted in database, survives leader failover)
+err := scheduler.Pause("nightly-backup")
 
-// Remove a registered job at runtime
+// Resume a paused job
+err = scheduler.Resume("nightly-backup")
+
+// Manually trigger a job immediately outside its normal schedule
+err = scheduler.Trigger("nightly-backup")
+
+// Remove a registered job (durably removed across the cluster)
 err = scheduler.Remove("cache-warmer")
+
+// Add a job dynamically at runtime (persisted in database, deduplicated against retries)
+err = scheduler.AddDynamic("report-export", "@every 30m", func(ctx context.Context) error {
+	return generateExport(ctx)
+})
 
 // Check current leadership status of this container instance
 isLeader := scheduler.IsLeader()
 ```
+
+### Cluster-Wide Admin Mutations & Failover
+- **Durable Persistence:** All mutations (`Pause`, `Resume`, `Remove`, `AddDynamic`) are saved to PostgreSQL (`job_state` table) before in-memory state is altered. If the database write fails, an error is returned and no in-memory state is changed.
+- **Failover Reconciliation:** When a standby replica acquires the advisory lock and is promoted to leader, it queries `job_state` and reconciles all job definitions: paused jobs remain paused without firing, removed jobs are unmarshaled from memory, and dynamic jobs are restored into the scheduling queue.
+- **Dynamic Job Handlers:** To ensure dynamic jobs can execute when leadership fails over to another node, register named handler functions using `dcron.WithJobHandler("report-export", fn)` or `scheduler.RegisterHandler("report-export", fn)`.
+- **Standby Mutation Proxying:** If an admin mutation (`POST /dcron/admin/jobs/{name}/pause`, `resume`, `DELETE`, etc.) hits a standby node, the standby automatically proxies the request to the active leader if `WithLeaderForwardURL("http://dcron-leader:8080")` is configured; otherwise, it returns `409 Conflict` (`dcron: not leader`).
+
 
 ## Running Included Examples
 

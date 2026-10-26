@@ -37,6 +37,7 @@ type options struct {
 	instance      string
 	sessionStable bool
 	lockConn      func(ctx context.Context) (*sql.Conn, error)
+	lockCloser    func() error
 	secondsField  bool
 
 	hooks []Hook
@@ -46,9 +47,12 @@ type options struct {
 	retention time.Duration
 	schema    string
 
-	startupTimeout time.Duration
-	pollTimeout    time.Duration
-	tracer         otel.Tracer
+	startupTimeout   time.Duration
+	pollTimeout      time.Duration
+	dbTimeout        time.Duration
+	tracer           otel.Tracer
+	leaderForwardURL string
+	handlers         map[string]JobFunc
 }
 
 func defaultOptions() options {
@@ -59,11 +63,13 @@ func defaultOptions() options {
 		drainTimeout:   30 * time.Second,
 		startupTimeout: 15 * time.Second,
 		pollTimeout:    5 * time.Second,
+		dbTimeout:      5 * time.Second,
 		logger:         slog.Default(),
 		instance:       newInstanceID(),
 		rec:            metrics.Noop{},
 		schema:         "dcron",
 		tracer:         otel.NoopTracer{},
+		handlers:       make(map[string]JobFunc),
 	}
 }
 
@@ -156,12 +162,20 @@ func WithDedicatedLockDSN(dsn string) Option {
 // WithDedicatedLockDriver is WithDedicatedLockDSN for custom registered driver names.
 func WithDedicatedLockDriver(driverName, dsn string) Option {
 	return func(o *options) {
+		var openedDB *sql.DB
 		o.lockConn = func(ctx context.Context) (*sql.Conn, error) {
 			db, err := sql.Open(driverName, dsn)
 			if err != nil {
 				return nil, err
 			}
+			openedDB = db
 			return db.Conn(ctx)
+		}
+		o.lockCloser = func() error {
+			if openedDB != nil {
+				return openedDB.Close()
+			}
+			return nil
 		}
 	}
 }
@@ -190,6 +204,36 @@ func WithPollTimeout(d time.Duration) Option {
 	return func(o *options) {
 		if d > 0 {
 			o.pollTimeout = d
+		}
+	}
+}
+
+// WithDBTimeout sets the per-operation timeout for history store and admin mutation database queries.
+// The default is 5 seconds.
+func WithDBTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.dbTimeout = d
+		}
+	}
+}
+
+// WithLeaderForwardURL sets the URL to which a standby replica will forward administrative mutation requests.
+func WithLeaderForwardURL(url string) Option {
+	return func(o *options) {
+		o.leaderForwardURL = url
+	}
+}
+
+// WithJobHandler registers a JobFunc by job name so a standby promoted to leader
+// can restore dynamic jobs registered in the database across failover.
+func WithJobHandler(name string, fn JobFunc) Option {
+	return func(o *options) {
+		if o.handlers == nil {
+			o.handlers = make(map[string]JobFunc)
+		}
+		if fn != nil {
+			o.handlers[name] = fn
 		}
 	}
 }

@@ -10,7 +10,20 @@ sidebar_label: Security
 
 ## Reporting Security Vulnerabilities
 
-Please report security-related vulnerabilities by opening an issue in the [d-cron repository](https://github.com/mindfire-test/d-cron/issues).
+The `d-cron` team takes the security of our library seriously. If you discover a security vulnerability, please report it responsibly through private channels.
+
+**Do NOT report security vulnerabilities through public GitHub issues, discussions, or pull requests.**
+
+### How to Report Privately
+
+Please submit vulnerability reports through one of the following private channels:
+
+1. **GitHub Private Vulnerability Reporting (Recommended)**:
+   Open a private advisory report at [https://github.com/mindfire-test/d-cron/security/advisories/new](https://github.com/mindfire-test/d-cron/security/advisories/new).
+2. **Security Contact Email**:
+   Email details directly to maintainers at `security@mindfiredigital.com`.
+
+### Information to Include
 
 When reporting, please include:
 
@@ -19,7 +32,7 @@ When reporting, please include:
 - Affected versions
 - Suggested mitigation or fix (if available)
 
-Reports are reviewed and addressed promptly by maintainers.
+Reports are reviewed and addressed promptly by maintainers. For non-security bugs, please use the standard public [issue tracker](https://github.com/mindfire-test/d-cron/issues).
 
 ## Security Practices
 

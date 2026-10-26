@@ -339,3 +339,11 @@ func (e *Elector) Close() error {
 	}
 	return e.backend.Close()
 }
+
+// Ping verifies that the backend lock connection is reachable.
+func (e *Elector) Ping(ctx context.Context) error {
+	if e.backend == nil {
+		return nil
+	}
+	return e.backend.Ping(ctx)
+}
