@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mindfire-test/d-cron/internal/clock"
@@ -31,15 +32,19 @@ type Scheduler struct {
 	leader       elector.Coordinator
 	group        *executor.Group
 
-	started bool
-	runCtx  context.Context
-	cancel  context.CancelFunc
-	done    chan struct{}
+	started    bool
+	runCtx     context.Context
+	cancel     context.CancelFunc
+	loopCtx    context.Context
+	loopCancel context.CancelFunc
+	done       chan struct{}
 
 	termCtx    context.Context
 	termCancel context.CancelFunc
 
-	lastPrune time.Time
+	lastPrune    time.Time
+	pruneRunning atomic.Bool
+	pruneWg      sync.WaitGroup
 }
 
 // New creates a Scheduler bound to db.
@@ -223,6 +228,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	s.started = true
 	s.runCtx, s.cancel = context.WithCancel(ctx)
+	s.loopCtx, s.loopCancel = context.WithCancel(s.runCtx)
 	s.group = executor.NewGroup()
 
 	s.termCtx, s.termCancel = context.WithCancel(s.runCtx)
@@ -242,13 +248,12 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 		return ErrNotStarted
 	}
 	s.started = false
-	cancel := s.cancel
-	s.termCancel()
-	s.currentEpoch = 0
+	loopCancel := s.loopCancel
 	s.mu.Unlock()
 
-	cancel()
+	loopCancel()
 	<-s.done
+	s.pruneWg.Wait()
 
 	var firstErr error
 
@@ -263,9 +268,29 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 		defer cancelDrain()
 	}
 
+	drainDone := make(chan struct{})
+	go func() {
+		select {
+		case <-drainCtx.Done():
+			s.mu.Lock()
+			s.termCancel()
+			s.cancel()
+			s.mu.Unlock()
+		case <-drainDone:
+		}
+	}()
+
 	if err := s.group.Wait(drainCtx); err != nil && firstErr == nil {
 		firstErr = err
 	}
+	close(drainDone)
+
+	s.mu.Lock()
+	s.termCancel()
+	s.cancel()
+	s.currentEpoch = 0
+	s.mu.Unlock()
+
 	if err := s.leader.Close(); err != nil && firstErr == nil {
 		firstErr = err
 	}

@@ -8,6 +8,7 @@ package clock
 
 import (
 	"errors"
+	"math/bits"
 	"strings"
 	"time"
 )
@@ -23,6 +24,82 @@ type Schedule interface {
 	// fires, in the location the schedule was parsed with. Returning the zero time
 	// (time.Time{}) signals "never again" so the min-heap evicts the entry.
 	Next(t time.Time) time.Time
+}
+
+// CronSchedule is a vixie-style cron schedule: 5 fields by default
+// (minute hour dom month dow), or 6 with a leading seconds field when parsed
+// by ParseSeconds.
+type CronSchedule struct {
+	minute, hour, dom, month, dow uint64
+	sec                           uint64
+	withSec                       bool
+	loc                           *time.Location
+}
+
+func advanceDate(cur, next time.Time, step time.Duration) time.Time {
+	if next.After(cur) {
+		return next
+	}
+	return cur.Add(step)
+}
+
+/* Next implements Schedule by scanning field-by-field. */
+func (c CronSchedule) Next(t time.Time) time.Time {
+	step := time.Minute
+	var cur time.Time
+	if c.withSec {
+		step = time.Second
+		cur = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, c.loc).Add(time.Second)
+	} else {
+		cur = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, c.loc).Add(time.Minute)
+	}
+	limit := cur.AddDate(4, 0, 0)
+
+	for cur.Before(limit) {
+		if c.month&(1<<uint(cur.Month())) == 0 {
+			next := time.Date(cur.Year(), cur.Month()+1, 1, 0, 0, 0, 0, c.loc)
+			cur = advanceDate(cur, next, step)
+			continue
+		}
+		if c.dom&(1<<uint(cur.Day())) == 0 || c.dow&(1<<uint(cur.Weekday())) == 0 {
+			next := time.Date(cur.Year(), cur.Month(), cur.Day()+1, 0, 0, 0, 0, c.loc)
+			cur = advanceDate(cur, next, step)
+			continue
+		}
+		if c.hour&(1<<uint(cur.Hour())) == 0 {
+			next := time.Date(cur.Year(), cur.Month(), cur.Day(), cur.Hour()+1, 0, 0, 0, c.loc)
+			cur = advanceDate(cur, next, step)
+			continue
+		}
+
+		if c.minute&(1<<uint(cur.Minute())) == 0 {
+			rem := c.minute >> uint(cur.Minute())
+			if rem == 0 {
+				next := time.Date(cur.Year(), cur.Month(), cur.Day(), cur.Hour()+1, 0, 0, 0, c.loc)
+				cur = advanceDate(cur, next, step)
+			} else {
+				next := time.Date(cur.Year(), cur.Month(), cur.Day(), cur.Hour(), cur.Minute()+bits.TrailingZeros64(rem), 0, 0, c.loc)
+				cur = advanceDate(cur, next, step)
+			}
+			continue
+		}
+
+		if c.withSec {
+			if c.sec&(1<<uint(cur.Second())) == 0 {
+				rem := c.sec >> uint(cur.Second())
+				if rem == 0 {
+					next := time.Date(cur.Year(), cur.Month(), cur.Day(), cur.Hour(), cur.Minute()+1, 0, 0, c.loc)
+					cur = advanceDate(cur, next, time.Second)
+				} else {
+					cur = cur.Add(time.Duration(bits.TrailingZeros64(rem)) * time.Second)
+				}
+				continue
+			}
+		}
+
+		return cur
+	}
+	return time.Time{}
 }
 
 // Parse interprets a schedule expression.
@@ -154,106 +231,6 @@ const (
 	minSecond = 0
 	maxSecond = 59
 )
-
-// CronSchedule is a vixie-style cron schedule: 5 fields by default
-// (minute hour dom month dow), or 6 with a leading seconds field when parsed
-// by ParseSeconds.
-type CronSchedule struct {
-	minute, hour, dom, month, dow uint64
-	sec                           uint64
-	withSec                       bool
-	loc                           *time.Location
-}
-
-/* Next implements Schedule by scanning field-by-field. */
-func (c CronSchedule) Next(t time.Time) time.Time {
-	if c.withSec {
-		cur := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, c.loc).Add(time.Second)
-		limit := cur.AddDate(4, 0, 0)
-		for cur.Before(limit) {
-			if c.month&(1<<uint(cur.Month())) == 0 {
-				next := time.Date(cur.Year(), cur.Month()+1, 1, 0, 0, 0, 0, c.loc)
-				if !next.After(cur) {
-					cur = cur.Add(time.Second)
-				} else {
-					cur = next
-				}
-				continue
-			}
-			if c.dom&(1<<uint(cur.Day())) == 0 || c.dow&(1<<uint(cur.Weekday())) == 0 {
-				next := time.Date(cur.Year(), cur.Month(), cur.Day()+1, 0, 0, 0, 0, c.loc)
-				if !next.After(cur) {
-					cur = cur.Add(time.Second)
-				} else {
-					cur = next
-				}
-				continue
-			}
-			if c.hour&(1<<uint(cur.Hour())) == 0 {
-				next := time.Date(cur.Year(), cur.Month(), cur.Day(), cur.Hour()+1, 0, 0, 0, c.loc)
-				if !next.After(cur) {
-					cur = cur.Add(time.Second)
-				} else {
-					cur = next
-				}
-				continue
-			}
-			if c.minute&(1<<uint(cur.Minute())) == 0 {
-				next := time.Date(cur.Year(), cur.Month(), cur.Day(), cur.Hour(), cur.Minute()+1, 0, 0, c.loc)
-				if !next.After(cur) {
-					cur = cur.Add(time.Second)
-				} else {
-					cur = next
-				}
-				continue
-			}
-			if c.sec&(1<<uint(cur.Second())) == 0 {
-				cur = cur.Add(time.Second)
-				continue
-			}
-			return cur
-		}
-		return time.Time{}
-	}
-
-	cur := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, c.loc).Add(time.Minute)
-	limit := cur.AddDate(4, 0, 0)
-	for cur.Before(limit) {
-		if c.month&(1<<uint(cur.Month())) == 0 {
-			next := time.Date(cur.Year(), cur.Month()+1, 1, 0, 0, 0, 0, c.loc)
-			if !next.After(cur) {
-				cur = cur.Add(time.Minute)
-			} else {
-				cur = next
-			}
-			continue
-		}
-		if c.dom&(1<<uint(cur.Day())) == 0 || c.dow&(1<<uint(cur.Weekday())) == 0 {
-			next := time.Date(cur.Year(), cur.Month(), cur.Day()+1, 0, 0, 0, 0, c.loc)
-			if !next.After(cur) {
-				cur = cur.Add(time.Minute)
-			} else {
-				cur = next
-			}
-			continue
-		}
-		if c.hour&(1<<uint(cur.Hour())) == 0 {
-			next := time.Date(cur.Year(), cur.Month(), cur.Day(), cur.Hour()+1, 0, 0, 0, c.loc)
-			if !next.After(cur) {
-				cur = cur.Add(time.Minute)
-			} else {
-				cur = next
-			}
-			continue
-		}
-		if c.minute&(1<<uint(cur.Minute())) == 0 {
-			cur = cur.Add(time.Minute)
-			continue
-		}
-		return cur
-	}
-	return time.Time{}
-}
 
 func parseCron(expr string, loc *time.Location) (CronSchedule, error) {
 	fields := strings.Fields(expr)

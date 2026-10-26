@@ -81,7 +81,26 @@ jobs:
 
       - name: Run Unit Tests (-race & coverage)
         run: |
-          go test -v -race -coverprofile=coverage.out ./test/clock/... ./test/elector/... ./test/executor/... ./test/metrics/... ./test/otel/... ./test/scheduler/... ./test/store/... ./test/ui/...
+          go test -v -race -coverpkg=./... -coverprofile=coverage.out ./test/clock/... ./test/elector/... ./test/executor/... ./test/metrics/... ./test/otel/... ./test/scheduler/... ./test/store/... ./test/ui/...
+
+      - name: Report and Enforce Coverage Threshold
+        run: |
+          go tool cover -func=coverage.out > coverage_report.txt
+          cat coverage_report.txt
+          TOTAL_COV=$(grep "total:" coverage_report.txt | awk '{print $3}' | tr -d '%')
+          THRESHOLD="70.0"
+          echo "Total statement coverage: ${TOTAL_COV}% (Threshold: ${THRESHOLD}%)"
+          echo "### Unit Test Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Observed Coverage:** \`${TOTAL_COV}%\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Minimum Threshold:** \`${THRESHOLD}%\`" >> $GITHUB_STEP_SUMMARY
+          awk -v cov="$TOTAL_COV" -v thresh="$THRESHOLD" 'BEGIN {
+            if (cov + 0.0 < thresh + 0.0) {
+              printf "ERROR: Coverage %.1f%% is below threshold %.1f%%\n", cov, thresh;
+              exit 1;
+            }
+            printf "SUCCESS: Coverage %.1f%% meets or exceeds threshold %.1f%%\n", cov, thresh;
+            exit 0;
+          }'
 
       - name: Upload Coverage Artifact
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1

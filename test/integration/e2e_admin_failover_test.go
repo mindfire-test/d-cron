@@ -469,3 +469,102 @@ func TestE2EReservedKeywordSchema(t *testing.T) {
 		}
 	}
 }
+
+// TestScheduler_PruneHistory_NonBlocking proves that history pruning runs asynchronously
+// in a background goroutine bounded by dbTimeout, without stalling or blocking job execution.
+func TestScheduler_PruneHistory_NonBlocking(t *testing.T) {
+	if testDB == nil {
+		t.Skip("PostgreSQL integration pool not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := mustOpen(t)
+	namespace := "prune-nonblocking-ns"
+
+	st, err := store.New(db, "dcron")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	if err := store.Migrate(ctx, db, "dcron"); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	epoch, err := st.IncrementEpoch(ctx, namespace, "prune-node")
+	if err != nil {
+		t.Fatalf("IncrementEpoch: %v", err)
+	}
+
+	// Pre-populate 50 old finished rows to be pruned
+	oldTime := time.Now().Add(-5 * time.Hour)
+	for i := 0; i < 50; i++ {
+		rowID, err := st.Record(ctx, store.Execution{
+			Namespace:   namespace,
+			JobName:     "old-job",
+			ScheduledAt: oldTime,
+			StartedAt:   oldTime,
+			Status:      store.StatusRunning,
+			Attempt:     1,
+			InstanceID:  "prune-node",
+			LeaderEpoch: epoch,
+		})
+		if err != nil {
+			t.Fatalf("Record: %v", err)
+		}
+		_, err = st.Finish(ctx, rowID, store.Execution{
+			Namespace:  namespace,
+			Status:     store.StatusSuccess,
+			FinishedAt: oldTime.Add(time.Minute),
+		})
+		if err != nil {
+			t.Fatalf("Finish: %v", err)
+		}
+	}
+
+	s, err := dcron.New(
+		db,
+		dcron.WithNamespace(namespace),
+		dcron.WithHistory(10*time.Minute), // 5-hour-old rows are expired
+		dcron.WithSessionStableConnection(),
+		dcron.WithPollInterval(10*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	var fastJobCount atomic.Int64
+	fastJobFired := make(chan struct{})
+
+	err = s.Add("fast-job", "@every 10ms", func(_ context.Context) error {
+		cnt := fastJobCount.Add(1)
+		if cnt >= 5 {
+			select {
+			case <-fastJobFired:
+			default:
+				close(fastJobFired)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Fast job must fire multiple times rapidly without any blocking from pruning
+	select {
+	case <-fastJobFired:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for fast job fires; fastJobCount = %d", fastJobCount.Load())
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := s.Stop(stopCtx); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+}

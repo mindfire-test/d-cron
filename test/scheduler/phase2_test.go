@@ -19,6 +19,7 @@ type recordingRecorder struct {
 	leaders     atomic.Int64
 	started     atomic.Int64
 	finished    atomic.Int64
+	missed      atomic.Int64
 	lastJob     atomic.Value
 	lastOutcome atomic.Value
 	lastDone    atomic.Bool
@@ -49,22 +50,23 @@ func (r *recordingRecorder) JobFinished(job string, out metrics.Outcome, _ time.
 }
 
 func (r *recordingRecorder) FencedWrite()       {}
-func (r *recordingRecorder) MissedRun(_ string) {}
+func (r *recordingRecorder) MissedRun(_ string) { r.missed.Add(1) }
 
-func waitFor(cond func() bool, what string) {
+func waitFor(t *testing.T, cond func() bool, what string) {
+	t.Helper()
 	deadline := time.Now().Add(4 * time.Second)
 	for !cond() && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	if !cond() {
-		panic("timed out waiting for " + what)
+		t.Fatalf("timed out waiting for %s", what)
 	}
 }
 
 func TestAddOnceEvictsAfterFiring(t *testing.T) {
 	s := testScheduler(newSchedBackend())
 	var fired atomic.Int64
-	at := time.Now().Add(500 * time.Millisecond)
+	at := time.Now().Add(50 * time.Millisecond)
 	if err := s.AddOnce("wallclock", at, func(context.Context) error {
 		fired.Add(1)
 		return nil
@@ -74,8 +76,7 @@ func TestAddOnceEvictsAfterFiring(t *testing.T) {
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(func() bool { return fired.Load() >= 1 }, "once-job to fire")
-	time.Sleep(400 * time.Millisecond)
+	waitFor(t, func() bool { return fired.Load() >= 1 }, "once-job to fire")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = s.Stop(ctx)
@@ -92,7 +93,7 @@ func TestLeadershipThreeState(t *testing.T) {
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(func() bool { return s.Leadership() == dcron.LeadershipLeader }, "leadership to promote")
+	waitFor(t, func() bool { return s.Leadership() == dcron.LeadershipLeader }, "leadership to promote")
 	if err := s.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestJobsReportsRunOutcome(t *testing.T) {
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(func() bool {
+	waitFor(t, func() bool {
 		st := s.Jobs()
 		return len(st) == 1 && st[0].LastOutcome == "ok"
 	}, "job outcome")
@@ -155,10 +156,16 @@ func TestJobsReportsRunOutcome(t *testing.T) {
 
 func TestJobsReportsRunningFlag(t *testing.T) {
 	s := testScheduler(newSchedBackend())
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+
 	if err := s.Add("slow", "@every 2ms", func(_ context.Context) error {
-		for i := 0; i < 30_000_000; i++ {
-			_ = i
+		select {
+		case <-started:
+		default:
+			close(started)
 		}
+		<-unblock
 		return nil
 	}, dcron.WithTimeout(10*time.Minute), dcron.WithRetry(dcron.Retry{Attempts: 1})); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -166,10 +173,12 @@ func TestJobsReportsRunningFlag(t *testing.T) {
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(func() bool {
+	<-started
+	waitFor(t, func() bool {
 		st := s.Jobs()
 		return len(st) == 1 && st[0].Running
 	}, "job running flag")
+	close(unblock)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	_ = s.Stop(ctx)
@@ -188,7 +197,7 @@ func TestHooksInvokedOnCompletion(t *testing.T) {
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(func() bool { return fired.Load() >= 1 }, "hook to fire")
+	waitFor(t, func() bool { return fired.Load() >= 1 }, "hook to fire")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = s.Stop(ctx)
@@ -206,7 +215,7 @@ func TestMetricsRecorderReceivesSignals(t *testing.T) {
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(func() bool { return rec.lastDone.Load() }, "job finished")
+	waitFor(t, func() bool { return rec.lastDone.Load() }, "job finished")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = s.Stop(ctx)
@@ -222,15 +231,29 @@ func TestMetricsRecorderReceivesSignals(t *testing.T) {
 }
 
 func TestWebhookHookConstruction(t *testing.T) {
-	w := dcron.WebhookHook{URL: "http://localhost:1/x"}
+	headers := map[string]string{"X-Test": "123"}
+	w := dcron.WebhookHook{
+		URL:     "http://localhost:1/x",
+		Timeout: 2 * time.Second,
+		Headers: headers,
+	}
 	if w.URL != "http://localhost:1/x" {
 		t.Fatalf("URL = %q", w.URL)
 	}
+	if w.Timeout != 2*time.Second {
+		t.Fatalf("Timeout = %v; want 2s", w.Timeout)
+	}
+	if w.Headers["X-Test"] != "123" {
+		t.Fatalf("Headers = %v", w.Headers)
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	wDefault := dcron.WebhookHook{URL: "http://127.0.0.1:0/invalid"}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	_ = w.Fire(ctx, dcron.Result{Name: "j", Outcome: dcron.OutcomeFailed})
-	http.DefaultClient.CloseIdleConnections()
+	err := wDefault.Fire(ctx, dcron.Result{Name: "job1", Outcome: dcron.OutcomeFailed})
+	if err == nil {
+		t.Fatal("Fire: expected error with unreachable URL")
+	}
 }
 
 func TestWebhookHook_HTTPDelivery(t *testing.T) {

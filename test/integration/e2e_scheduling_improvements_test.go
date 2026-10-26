@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -78,6 +79,65 @@ func TestE2ESinceLastSuccessScheduling(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for second execution")
+	}
+}
+
+func TestE2ESinceLastSuccess_FailedRunDoesNotReschedule(t *testing.T) {
+	if testDB == nil {
+		t.Skip("PostgreSQL integration pool not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := mustOpen(t)
+	namespace := "e2e-since-success-fail"
+
+	s, err := dcron.New(
+		db,
+		dcron.WithNamespace(namespace),
+		dcron.WithHistory(time.Hour),
+		dcron.WithSessionStableConnection(),
+		dcron.WithPollInterval(20*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	var executions atomic.Int64
+	jobExecuted := make(chan struct{})
+
+	err = s.Add("failing-since-job", "@every 1m", func(_ context.Context) error {
+		count := executions.Add(1)
+		if count == 1 {
+			close(jobExecuted)
+		}
+		return errors.New("simulated failure")
+	}, dcron.WithSinceLastSuccess(50*time.Millisecond), dcron.WithNoRetry())
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stopCancel()
+		_ = s.Stop(stopCtx)
+	}()
+
+	select {
+	case <-jobExecuted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for initial job execution")
+	}
+
+	// Wait 250ms (well past the 50ms interval) to verify no subsequent run is scheduled after failure
+	time.Sleep(250 * time.Millisecond)
+
+	if got := executions.Load(); got != 1 {
+		t.Fatalf("job ran %d times after failure; want exactly 1 (failed run must not reschedule next success run)", got)
 	}
 }
 

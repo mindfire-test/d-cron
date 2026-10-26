@@ -74,7 +74,7 @@ func TestAdminHandler_StandbyForwarding_Success(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	waitFor(func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
+	waitFor(t, func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
 
 	auth := func(r *http.Request) bool {
 		return r.Header.Get("Authorization") == "Bearer secret"
@@ -141,7 +141,7 @@ func TestAdminHandler_StandbyForwarding_LeaderUnavailable(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	waitFor(func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
+	waitFor(t, func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
 
 	h := dcron.AdminHandler(nil, s)
 	req := httptest.NewRequest(http.MethodPost, "/jobs/alpha/pause", nil)
@@ -162,7 +162,7 @@ func TestAdminHandler_StandbyWithoutForwardURL_Returns409(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	waitFor(func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
+	waitFor(t, func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
 
 	h := dcron.AdminHandler(nil, s)
 	req := httptest.NewRequest(http.MethodPost, "/jobs/alpha/pause", nil)
@@ -182,7 +182,7 @@ func TestAdminHandler_AuthRejectedBeforeForwarding(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	waitFor(func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
+	waitFor(t, func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
 
 	auth := func(*http.Request) bool { return false }
 	h := dcron.AdminHandler(auth, s)
@@ -231,7 +231,7 @@ func TestAdminHandler_StandbyForwarding_PreservesLeaderError(t *testing.T) {
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitFor(func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
+	waitFor(t, func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
 
 	h := dcron.AdminHandler(nil, s)
 	req := httptest.NewRequest(http.MethodPost, "/jobs/alpha/pause", nil)
@@ -262,7 +262,7 @@ func TestAdminHandler_StandbyForwarding_ClientTimeout(t *testing.T) {
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitFor(func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
+	waitFor(t, func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
 
 	h := dcron.AdminHandler(nil, s)
 

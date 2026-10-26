@@ -153,3 +153,31 @@ func TestHealthCheck_DedicatedLockConnection(t *testing.T) {
 		t.Fatalf("HealthCheck error = %v; want mention of dedicated lock connection", err)
 	}
 }
+
+func BenchmarkHoldsLock(b *testing.B) {
+	if testDB == nil {
+		b.Skip("PostgreSQL integration pool not initialized")
+	}
+	ctx := context.Background()
+	conn, err := testDB.Conn(ctx)
+	if err != nil {
+		b.Fatalf("Conn: %v", err)
+	}
+	defer conn.Close()
+
+	be := elector.NewStdBackend(conn)
+	key := int64(9876543210)
+	acquired, _, err := be.TryLock(ctx, key)
+	if err != nil || !acquired {
+		b.Fatalf("TryLock: acquired=%v, err=%v", acquired, err)
+	}
+	defer func() { _, _ = be.Release(ctx, key) }()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		holds, err := be.HoldsLock(ctx, key)
+		if err != nil || !holds {
+			b.Fatalf("HoldsLock: holds=%v, err=%v", holds, err)
+		}
+	}
+}

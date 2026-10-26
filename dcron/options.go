@@ -89,8 +89,21 @@ func WithLocation(loc *time.Location) Option {
 	}
 }
 
-// WithPollInterval sets how often a standby retries leadership acquisition
-// (with jitter). The default is 5s.
+// WithPollInterval sets how often a standby polls for leadership acquisition
+// and how often the active leader verifies lock liveness via HoldsLock (with ±20% jitter).
+// The default is 5s.
+//
+// Performance & Database Load Considerations:
+// On every polling interval:
+//   - Each standby replica executes SELECT pg_try_advisory_lock($1), pg_backend_pid().
+//   - The active leader executes a read-only pg_locks query (HoldsLock) to verify session ownership.
+//
+// While pg_locks is an in-memory lock table scan in PostgreSQL, setting aggressive sub-second
+// intervals (e.g. < 1s) materially increases database query volume and connection load, especially
+// in deployments with many standby replicas.
+//
+// For production deployments, an interval between 3s and 5s is recommended. Fast failover
+// should be achieved by configuring aggressive TCP keepalive timeouts rather than tight database polling loops.
 func WithPollInterval(d time.Duration) Option {
 	return func(o *options) {
 		o.pollInterval = d

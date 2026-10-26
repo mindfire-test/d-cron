@@ -29,7 +29,7 @@ func (s *Scheduler) runLoop() {
 
 	for {
 		now := time.Now().In(s.opts.location)
-		_, electorEpoch, err := s.leader.Acquire(s.runCtx)
+		_, electorEpoch, err := s.leader.Acquire(s.loopCtx)
 		isLeader := s.leader.IsLeader()
 
 		switch {
@@ -50,7 +50,7 @@ func (s *Scheduler) runLoop() {
 			epoch := s.currentEpoch
 			s.mu.Unlock()
 			if s.store != nil && epoch == 0 {
-				epochCtx, cancel := context.WithTimeout(s.runCtx, s.opts.dbTimeout)
+				epochCtx, cancel := context.WithTimeout(s.loopCtx, s.opts.dbTimeout)
 				dbEpoch, err := s.store.IncrementEpoch(epochCtx, s.opts.namespace, s.opts.instance)
 				cancel()
 				if err == nil {
@@ -72,7 +72,7 @@ func (s *Scheduler) runLoop() {
 		}
 
 		select {
-		case <-s.runCtx.Done():
+		case <-s.loopCtx.Done():
 			return
 		case <-timer.C:
 			timer.Reset(s.jitteredPoll())
@@ -83,7 +83,7 @@ func (s *Scheduler) runLoop() {
 func (s *Scheduler) onPromotion(electorEpoch int64) {
 	epoch := electorEpoch
 	if s.store != nil {
-		epochCtx, cancel := context.WithTimeout(s.runCtx, s.opts.dbTimeout)
+		epochCtx, cancel := context.WithTimeout(s.loopCtx, s.opts.dbTimeout)
 		dbEpoch, err := s.store.IncrementEpoch(epochCtx, s.opts.namespace, s.opts.instance)
 		cancel()
 		if err == nil {
@@ -134,7 +134,7 @@ func (s *Scheduler) catchUpMissedRuns(epoch int64) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(s.runCtx, s.opts.dbTimeout)
+	ctx, cancel := context.WithTimeout(s.loopCtx, s.opts.dbTimeout)
 	defer cancel()
 
 	now := time.Now().In(s.opts.location)
@@ -224,22 +224,49 @@ func (s *Scheduler) pruneHistory(now time.Time) {
 		return
 	}
 	s.lastPrune = now
-	pruneCtx, cancel := context.WithTimeout(s.runCtx, defaultPruneTimeout)
-	defer cancel()
-	n, err := s.store.Prune(pruneCtx, s.opts.namespace, s.opts.retention)
-	if err != nil {
-		s.opts.logger.Warn("dcron: history prune failed", "err", err)
+
+	// Ensure at most one background pruning operation runs at any time.
+	if !s.pruneRunning.CompareAndSwap(false, true) {
+		s.opts.logger.Debug("dcron: skipping history prune; previous prune operation still in progress")
 		return
 	}
-	if n > 0 {
-		s.opts.logger.Info("dcron: pruned history", "rows", n)
+
+	timeout := defaultPruneTimeout
+	if s.opts.dbTimeout > 0 {
+		timeout = s.opts.dbTimeout
 	}
+
+	s.pruneWg.Add(1)
+	go func() {
+		defer s.pruneWg.Done()
+		defer s.pruneRunning.Store(false)
+
+		pruneCtx, cancel := context.WithTimeout(s.runCtx, timeout)
+		defer cancel()
+
+		n, err := s.store.Prune(pruneCtx, s.opts.namespace, s.opts.retention)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				s.opts.logger.Warn("dcron: history prune failed", "err", err)
+			}
+			return
+		}
+		if n > 0 {
+			s.opts.logger.Info("dcron: pruned history", "rows", n)
+		}
+	}()
+}
+
+type dueJobFiring struct {
+	job    *Job
+	fireAt time.Time
 }
 
 // fireDue evaluates ticks on the Leader replica using the location resolved at construction.
 func (s *Scheduler) fireDue(now time.Time, epoch int64) {
+	var toFire []dueJobFiring
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, cd := range s.clk.NextDue(now) {
 		j := s.jobs[cd.Name]
 		if j == nil {
@@ -272,7 +299,12 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 			}
 			continue
 		}
-		s.invoke(j, epoch, cd.FireAt)
+		toFire = append(toFire, dueJobFiring{job: j, fireAt: cd.FireAt})
+	}
+	s.mu.Unlock()
+
+	for _, df := range toFire {
+		s.invoke(df.job, epoch, df.fireAt)
 	}
 }
 

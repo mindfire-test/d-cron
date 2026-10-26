@@ -295,3 +295,125 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+func TestCronNext_SparseSeconds(t *testing.T) {
+	t.Parallel()
+
+	// 1. Sparse second 59: should jump directly to 59th second without 59 iterations
+	s, err := clock.ParseSeconds("59 * * * * *", time.UTC)
+	if err != nil {
+		t.Fatalf("ParseSeconds: %v", err)
+	}
+	from := tss(2024, 1, 1, 12, 0, 0)
+	got := s.Next(from)
+	want := tss(2024, 1, 1, 12, 0, 59)
+	if !got.Equal(want) {
+		t.Fatalf("Next = %s; want %s", got, want)
+	}
+
+	// 2. Already at second 59: should roll over to next minute at second 59
+	got2 := s.Next(got)
+	want2 := tss(2024, 1, 1, 12, 1, 59)
+	if !got2.Equal(want2) {
+		t.Fatalf("Next from second 59 = %s; want %s", got2, want2)
+	}
+
+	// 3. Sparse second and sparse minute (e.g., at second 45 on minute 15 or 45)
+	sSparse, err := clock.ParseSeconds("45 15,45 * * * *", time.UTC)
+	if err != nil {
+		t.Fatalf("ParseSeconds: %v", err)
+	}
+	got3 := sSparse.Next(tss(2024, 1, 1, 12, 0, 0))
+	want3 := tss(2024, 1, 1, 12, 15, 45)
+	if !got3.Equal(want3) {
+		t.Fatalf("Next = %s; want %s", got3, want3)
+	}
+	got4 := sSparse.Next(got3)
+	want4 := tss(2024, 1, 1, 12, 45, 45)
+	if !got4.Equal(want4) {
+		t.Fatalf("Next = %s; want %s", got4, want4)
+	}
+
+	// 4. Leap year boundary with sparse seconds
+	sLeap, err := clock.ParseSeconds("30 0 0 29 2 *", time.UTC)
+	if err != nil {
+		t.Fatalf("ParseSeconds: %v", err)
+	}
+	// From 2024-02-28, next is 2024-02-29 00:00:30 (leap year)
+	gotLeap := sLeap.Next(tss(2024, 2, 28, 0, 0, 0))
+	wantLeap := tss(2024, 2, 29, 0, 0, 30)
+	if !gotLeap.Equal(wantLeap) {
+		t.Fatalf("Leap Next = %s; want %s", gotLeap, wantLeap)
+	}
+	// Next occurrence after 2024 is 2028-02-29 00:00:30 (next leap year)
+	gotLeap2 := sLeap.Next(gotLeap)
+	wantLeap2 := tss(2028, 2, 29, 0, 0, 30)
+	if !gotLeap2.Equal(wantLeap2) {
+		t.Fatalf("Next leap year = %s; want %s", gotLeap2, wantLeap2)
+	}
+
+	// 5. Impossible schedule returns zero time after search limit
+	// Feb 30 is impossible
+	sImpossible, err := clock.ParseSeconds("0 0 0 30 2 *", time.UTC)
+	if err != nil {
+		t.Fatalf("ParseSeconds: %v", err)
+	}
+	gotImp := sImpossible.Next(tss(2024, 1, 1, 0, 0, 0))
+	if !gotImp.IsZero() {
+		t.Fatalf("Impossible schedule Next = %s; want zero time", gotImp)
+	}
+}
+
+func TestCronNext_DenseSeconds(t *testing.T) {
+	t.Parallel()
+
+	s, err := clock.ParseSeconds("* * * * * *", time.UTC)
+	if err != nil {
+		t.Fatalf("ParseSeconds: %v", err)
+	}
+	from := tss(2024, 1, 1, 0, 0, 0)
+	cur := from
+	for i := 1; i <= 120; i++ {
+		cur = s.Next(cur)
+		want := from.Add(time.Duration(i) * time.Second)
+		if !cur.Equal(want) {
+			t.Fatalf("Iteration %d: got %s, want %s", i, cur, want)
+		}
+	}
+}
+
+func BenchmarkCronNext_SparseSeconds(b *testing.B) {
+	s, err := clock.ParseSeconds("59 59 23 * * *", time.UTC)
+	if err != nil {
+		b.Fatal(err)
+	}
+	from := tss(2024, 1, 1, 0, 0, 0)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = s.Next(from)
+	}
+}
+
+func BenchmarkCronNext_DenseSeconds(b *testing.B) {
+	s, err := clock.ParseSeconds("*/2 * * * * *", time.UTC)
+	if err != nil {
+		b.Fatal(err)
+	}
+	from := tss(2024, 1, 1, 0, 0, 0)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = s.Next(from)
+	}
+}
+
+func BenchmarkCronNext_Standard5Field(b *testing.B) {
+	s, err := clock.Parse("*/15 9-17 * * 1-5", time.UTC)
+	if err != nil {
+		b.Fatal(err)
+	}
+	from := ts(2024, 1, 1, 0, 0)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = s.Next(from)
+	}
+}

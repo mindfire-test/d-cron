@@ -251,3 +251,140 @@ Standby replicas reject direct mutation calls with `ErrNotLeader` (HTTP 409 Conf
   - Added `TestRedactError` in `test/scheduler/phase2_test.go` verifying multiple leak patterns, multiline errors, and clean error preservation.
   - Added `TestWebhookHook_Redaction` verifying default redaction, raw opt-in, and custom redact functions.
 
+---
+
+## Part 4: Performance Optimization & Testing Coverage (Findings P1–P4, T1–T5)
+
+**Working Branch:** `fix/performance-testing-coverage`
+**Base Commit:** `b3d6799` (from `fix/database-points`)
+
+### Finding P1 — Non-Blocking History Pruning
+- **Classification:** **CONFIRMED & FIXED**
+- **Affected Files:** `dcron/dcron.go`, `dcron/loop.go`, `test/integration/e2e_admin_failover_test.go`
+- **Root Cause & Failure Scenario:** Previously, `pruneHistory` ran synchronously inside the leader's evaluation loop on every minute tick. When pruning expired executions on large tables, the `DELETE` query blocked `fireDue`, introducing up to 15 seconds of scheduling jitter and delaying due job dispatches across the entire cluster.
+- **Resolution:**
+  - Converted `pruneHistory` to run asynchronously in a dedicated background goroutine.
+  - Guarded concurrency using `atomic.Bool` (`s.pruneRunning.CompareAndSwap(false, true)`) to prevent multiple overlapping prune operations if a previous cycle is still in flight.
+  - Bounded pruning execution with `s.opts.dbTimeout` (or `defaultPruneTimeout`).
+  - Added `pruneWg sync.WaitGroup` tracked across the scheduler lifecycle and safely drained in `Scheduler.Stop` via `s.pruneWg.Wait()`.
+- **Regression Tests:**
+  - Added `TestScheduler_PruneHistory_NonBlocking` in `test/integration/e2e_admin_failover_test.go` asserting that rapid job execution continues without jitter while history pruning runs in the background.
+
+---
+
+### Finding P2 — Optimized `CronSchedule.Next` & Scan Deduplication
+- **Classification:** **CONFIRMED & FIXED**
+- **Affected Files:** `internal/clock/clock.go`, `test/clock/clock_test.go`
+- **Root Cause & Failure Scenario:**
+  1. `Next` evaluated 5-field and 6-field cron expressions in two largely duplicated ~80-line scanning loops.
+  2. For sparse seconds specifications (such as second 59: `59 * * * * *`), the evaluator stepped second-by-second (`t.Add(time.Second)`), iterating through full date, month, day, hour, and minute checks up to 59 times per minute.
+- **Resolution:**
+  - Extracted shared date progression logic into `advanceDate(cur, next, step)`.
+  - Unified 5-field and 6-field evaluation paths.
+  - Replaced second-by-second linear increments with bitwise $O(1)$ jumps using `bits.TrailingZeros64(c.sec >> cur.Second())` and `bits.TrailingZeros64(c.min >> cur.Minute())`, skipping directly to the next matching second/minute in a single arithmetic step.
+- **Performance & Benchmark Results:**
+  - Measured 0 allocs/op across all schedule calculations.
+  - `BenchmarkCronNext_SparseSeconds`: ~2172 ns/op, 0 allocs/op.
+  - `BenchmarkCronNext_DenseSeconds`: ~197 ns/op, 0 allocs/op.
+  - `BenchmarkCronNext_Standard5Field`: ~194 ns/op, 0 allocs/op.
+
+---
+
+### Finding P3 — Reduced Mutex Lock Contention in `fireDue`
+- **Classification:** **CONFIRMED & FIXED**
+- **Affected Files:** `dcron/loop.go`, `test/scheduler/scheduler_coverage_test.go`
+- **Root Cause & Failure Scenario:** In `fireDue`, `s.mu.Lock()` was held while iterating over due jobs and invoking `s.invoke(j, epoch, cd.FireAt)`. `invoke` performs OpenTelemetry span initialization, job status updates, and group dispatch. Holding `s.mu` blocked concurrent administrative and inspection calls (`Jobs()`, `Pause()`, `Resume()`, `Remove()`) across all running replicas during bursty job dispatches.
+- **Resolution:**
+  - Split `fireDue` into two phases:
+    1. Fast critical section under `s.mu`: Pop next due elements from `clk` heap, advance `nextRun`, push the rescheduled time back into the heap, evaluate pause/overlap flags, and collect jobs into a local `toFire []dueJobFiring` slice.
+    2. Unlock `s.mu.Unlock()`.
+    3. Iterate over `toFire` slice and execute `s.invoke` outside the mutex lock.
+- **Regression Tests:**
+  - Added `TestScheduler_FireDue_ReducedLockContention` in `test/scheduler/scheduler_coverage_test.go` simulating 4 concurrent worker routines querying `Jobs()` while 10 rapid jobs fire, asserting zero lock contention delays (<50ms).
+
+---
+
+### Finding P4 — `HoldsLock` Polling Overhead & Failover Guidance
+- **Classification:** **CONFIRMED & FIXED**
+- **Affected Files:** `dcron/options.go`, `apps/docs/docs/architecture/advisory-locks.md`, `test/integration/advisory_holds_test.go`
+- **Root Cause & Failure Scenario:** Polling `pg_locks` every `pollInterval` incurs database query overhead. The trade-offs between heartbeat frequency, database load, and failover latency were under-documented, leading users to choose inappropriately aggressive poll intervals.
+- **Resolution:**
+  - Added `BenchmarkHoldsLock` against real PostgreSQL measuring actual `pg_locks` scan overhead (~483 µs/op).
+  - Documented production trade-offs in `WithPollInterval` docstrings: recommended 3s–5s for multi-tenant production databases; advised relying on OS TCP keepalives (`tcp_keepalives_idle=30`) for socket drop detection rather than sub-second query polling.
+  - Updated architectural documentation in `apps/docs/docs/architecture/advisory-locks.md`.
+
+---
+
+### Finding T1 — Scheduler Behavior & Shutdown Context Coverage
+- **Classification:** **CONFIRMED & FIXED**
+- **Affected Files:** `dcron/dcron.go`, `dcron/loop.go`, `test/scheduler/scheduler_coverage_test.go`, `test/integration/e2e_epoch_fencing_test.go`, `test/integration/e2e_scheduling_improvements_test.go`
+- **Root Cause & Failure Scenario:**
+  1. Multiple scheduler options (`WithNoOverlap`, `OverlapQueue`, `WithMissedRunPolicy`, `WithSinceLastSuccess`) lacked dedicated deterministic tests.
+  2. In `Scheduler.Stop`, `s.termCancel()` and `s.cancel()` were prematurely called before `s.group.Wait(drainCtx)`, causing in-flight jobs to be cancelled immediately at $t=0$ instead of remaining uncancelled throughout the graceful drain timeout budget.
+- **Resolution:**
+  - Refactored `Scheduler.Stop`: separated loop cancellation (`loopCancel`) from job execution context (`termCtx`). In-flight jobs remain uncancelled until `drainCtx` deadline expires, satisfying FR-315.
+  - Added deterministic regression tests:
+    - `TestScheduler_WithNoOverlap_SkipsRunning`
+    - `TestScheduler_OverlapQueue_QueuesNextRun`
+    - `TestScheduler_WithMissedRunPolicy_Skip`
+    - `TestScheduler_ShutdownDrainContext_UncancelledUntilDeadline`
+    - `TestScheduler_WithHistory_InspectPersistedRows` (asserting `status='success'`, `job_name`, `attempt=1`, `duration_ms>0`, timestamps, and matching `leader_epoch`)
+    - `TestE2ESinceLastSuccessScheduling` and `TestE2ESinceLastSuccess_FailedRunDoesNotReschedule` (verifying failure does not reschedule next run)
+    - `TestE2EMissedCatchUpOnPromotion`
+
+---
+
+### Finding T2 — Scheduler-Supplied Epoch Fencing
+- **Classification:** **CONFIRMED & FIXED**
+- **Affected Files:** `test/integration/e2e_epoch_fencing_test.go`
+- **Root Cause & Failure Scenario:** Existing unit tests only tested store-level SQL queries with manual epochs and did not verify that the `Scheduler` itself correctly captures, propagates, and binds the leader epoch during execution and completion.
+- **Resolution:**
+  - Added `TestScheduler_EpochFencing_StaleSchedulerFinishRejected` in `test/integration/e2e_epoch_fencing_test.go`:
+    1. Scheduler replica 1 starts and executes a long-running job with `epoch = 1`.
+    2. While the job is running, the database epoch is incremented to simulate promotion of replica 2 (`epoch = 2`).
+    3. Replica 1 finishes its job and attempts `store.Finish` with stale `epoch = 1`.
+    4. Database rejects the update (`WHERE leader_epoch >= (SELECT current_epoch...)` matches 0 rows), scheduler logs `fenced write detected on finish`, and the row remains unfalsified in `running` state.
+
+---
+
+### Finding T3 — PgBouncer Transaction-Mode & Partitioned-Leader Tests
+- **Classification:** **CONFIRMED & FIXED**
+- **Affected Files:** `test/integration/pooler_regression_test.go`
+- **Root Cause & Failure Scenario:** `test/integration/pooler_regression_test.go` previously contained no-op skip stubs that did not verify behavioral guarantees.
+- **Resolution:**
+  - Replaced stubs with executable tests:
+    1. `TestPgBouncerTransactionModeRejection`: Verifies that `New` rejects transaction-pooling connections with `SessionStabilityError`.
+    2. `TestPgBouncerWithDedicatedLockDSNBypass`: Proves `WithDedicatedLockDSN` allows general transaction poolers when an unpooled direct session is provided for advisory locks.
+    3. `TestPartitionedLeaderSafety`: Uses Toxiproxy HTTP API to sever network connectivity and asserts that `HealthCheck` detects the broken connection within deadline.
+  - All tests clearly distinguish PASS, FAIL, and SKIPPED based on environment variable gates (`DCRON_TEST_PGBOUNCER_DSN`, `DCRON_TEST_TOXIPROXY`).
+
+---
+
+### Finding T4 — Test Hygiene & Flaky Timing
+- **Classification:** **CONFIRMED & FIXED**
+- **Affected Files:** `test/scheduler/phase2_test.go`, `test/scheduler/admin_failover_test.go`, `test/scheduler/custom_hook_test.go`, `test/scheduler/scheduler_api_test.go`
+- **Root Cause & Failure Scenario:**
+  1. `waitFor` helper panicked on failure instead of failing with `t.Fatalf`, obscuring test failure traces.
+  2. `TestJobsReportsRunningFlag` spun 30,000,000 CPU cycles in an attempt to keep a job busy.
+  3. `TestWebhookHookConstruction` only tested struct field assignment.
+- **Resolution:**
+  - Changed `waitFor` signature to `waitFor(t *testing.T, cond func() bool, what string)` with `t.Helper()` and `t.Fatalf`.
+  - Replaced 30,000,000 busy loop with channel-based deterministic synchronization (`started`, `unblock`).
+  - Strengthened `TestWebhookHookConstruction` to verify default timeout fallback and unreachable URL error delivery.
+
+---
+
+### Finding T5 — Coverage Reporting, Thresholding & Integration CI
+- **Classification:** **CONFIRMED & FIXED**
+- **Affected Files:** `.github/workflows/ci.yml`, `.lefthook.yml`
+- **Root Cause & Failure Scenario:**
+  1. Unit tests in `.github/workflows/ci.yml` lacked `-coverpkg=./...`, falsely reporting 0% coverage on core packages because tests are located in separate `test/` packages.
+  2. No automated coverage threshold was enforced in CI.
+  3. Pre-push hook did not document the separation between fast unit tests and the standalone `test/integration` module.
+- **Resolution:**
+  - Updated `.github/workflows/ci.yml` to pass `-coverpkg=./...`.
+  - Measured baseline unit test statement coverage at **71.4%**.
+  - Added automated coverage threshold check in CI enforcing `>= 70.0%`, reporting summary tables to `$GITHUB_STEP_SUMMARY`.
+  - Preserved separate `test/integration` module execution under the `Postgres Integration Matrix` job.
+  - Updated `.lefthook.yml` with clear documentation on local unit test vs integration test execution.
+

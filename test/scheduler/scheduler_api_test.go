@@ -229,7 +229,7 @@ func TestStandbyMutations_RejectWithErrNotLeader(t *testing.T) {
 	}
 
 	// Verify scheduler enters Standby mode
-	waitFor(func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
+	waitFor(t, func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
 
 	// Verify Pause returns ErrNotLeader
 	if err := s.Pause("standby_job"); !errors.Is(err, dcron.ErrNotLeader) {

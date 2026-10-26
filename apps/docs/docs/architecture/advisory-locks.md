@@ -83,9 +83,9 @@ func LockKey(namespace string) int64 {
 └──────────────────────────────┘                                  └──────────────────────────────┘
 ```
 
-1. **Standby State**: The instance periodically attempts to acquire the advisory lock key using `TryLock`. The timer clock is **suspended**. CPU usage is virtually zero.
+1. **Standby State**: The instance periodically attempts to acquire the advisory lock key using `TryLock` (`SELECT pg_try_advisory_lock($1)`). The timer clock is **suspended**. CPU usage is virtually zero.
 2. **Leader State**: When `TryLock` returns `true`, the instance transitions to **Leader**, increments its monotonic **Leader Epoch** (e.g. from Epoch 4 to Epoch 5), and wakes the timer engine to evaluate job schedules.
-3. **Heartbeat Verification**: A background routine periodically executes `HoldsLock` to verify that the active database session remains healthy.
+3. **Heartbeat Verification**: On each polling tick, the leader executes `HoldsLock` to verify that its dedicated connection still holds the advisory lock. `HoldsLock` queries `pg_locks` matching the lock key and `pg_backend_pid()`. While `pg_locks` is an in-memory table scan in PostgreSQL, setting aggressive sub-second intervals (e.g. < 1s) multiplies database query volume unnecessarily. Production clusters should use `3s`–`5s` poll intervals, relying on TCP keepalives (`tcp_keepalives_idle`) for fast failure detection.
 
 ### Failover Flow Sequence
 

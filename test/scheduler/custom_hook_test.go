@@ -38,7 +38,7 @@ func TestExternalCustomHookImplementation(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	waitFor(func() bool {
+	waitFor(t, func() bool {
 		hook.mu.Lock()
 		defer hook.mu.Unlock()
 		return len(hook.results) >= 1
