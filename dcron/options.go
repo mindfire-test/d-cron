@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mindfire-test/d-cron/metrics"
+	"github.com/mindfire-test/d-cron/otel"
 )
 
 func newInstanceID() string {
@@ -44,18 +45,25 @@ type options struct {
 	history   bool
 	retention time.Duration
 	schema    string
+
+	startupTimeout time.Duration
+	pollTimeout    time.Duration
+	tracer         otel.Tracer
 }
 
 func defaultOptions() options {
 	return options{
-		namespace:    "default",
-		location:     time.UTC,
-		pollInterval: 5 * time.Second,
-		drainTimeout: 30 * time.Second,
-		logger:       slog.Default(),
-		instance:     newInstanceID(),
-		rec:          metrics.Noop{},
-		schema:       "dcron",
+		namespace:      "default",
+		location:       time.UTC,
+		pollInterval:   5 * time.Second,
+		drainTimeout:   30 * time.Second,
+		startupTimeout: 15 * time.Second,
+		pollTimeout:    5 * time.Second,
+		logger:         slog.Default(),
+		instance:       newInstanceID(),
+		rec:            metrics.Noop{},
+		schema:         "dcron",
+		tracer:         otel.NoopTracer{},
 	}
 }
 
@@ -162,5 +170,35 @@ func WithDedicatedLockDriver(driverName, dsn string) Option {
 func WithSecondsField() Option {
 	return func(o *options) {
 		o.secondsField = true
+	}
+}
+
+// WithStartupTimeout sets the maximum duration allowed for startup database operations
+// (obtaining the dedicated lock connection, probing keepalives, and running migrations).
+// The default is 15 seconds.
+func WithStartupTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.startupTimeout = d
+		}
+	}
+}
+
+// WithPollTimeout sets the per-attempt timeout for leadership probe queries.
+// The default is 5 seconds.
+func WithPollTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.pollTimeout = d
+		}
+	}
+}
+
+// WithTracer attaches an OpenTelemetry tracer for instrumenting job executions.
+func WithTracer(t otel.Tracer) Option {
+	return func(o *options) {
+		if t != nil {
+			o.tracer = t
+		}
 	}
 }

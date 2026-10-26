@@ -11,17 +11,36 @@ import (
 	"github.com/mindfire-test/d-cron/internal/executor"
 )
 
+// Result is the terminal outcome of one logical job execution delivered to hooks.
+type Result struct {
+	Name     string
+	Outcome  string
+	Error    error
+	Attempts int
+	Duration time.Duration
+}
+
+// Outcome values for Result.Outcome.
+const (
+	OutcomeOK       = "ok"
+	OutcomeFailed   = "failed"
+	OutcomePanicked = "panicked"
+	OutcomeTimedOut = "timed_out"
+	OutcomeCanceled = "canceled"
+	OutcomeUnknown  = "unknown"
+)
+
 // Hook is called on the terminal outcome of a job execution.
 type Hook interface {
 	// Fire receives the final Result of one logical execution.
-	Fire(ctx context.Context, res executor.Result) error
+	Fire(ctx context.Context, res Result) error
 }
 
 // HookFunc adapts a plain function to the Hook interface.
-type HookFunc func(ctx context.Context, res executor.Result) error
+type HookFunc func(ctx context.Context, res Result) error
 
 // Fire implements Hook.
-func (f HookFunc) Fire(ctx context.Context, res executor.Result) error { return f(ctx, res) }
+func (f HookFunc) Fire(ctx context.Context, res Result) error { return f(ctx, res) }
 
 // WithHooks registers one or more failure/success notification hooks.
 func WithHooks(hooks ...Hook) Option {
@@ -29,13 +48,20 @@ func WithHooks(hooks ...Hook) Option {
 }
 
 func (s *Scheduler) fireHooks(res executor.Result) {
+	pubRes := Result{
+		Name:     res.Name,
+		Outcome:  res.Outcome.String(),
+		Error:    res.Error,
+		Attempts: res.Attempts,
+		Duration: res.Duration,
+	}
 	s.mu.Lock()
 	hooks := s.opts.hooks
 	runCtx := s.runCtx
 	s.mu.Unlock()
 	for _, h := range hooks {
-		s.group.Go(runCtx, "_hook:"+res.Name, executor.Func(func(ctx context.Context) error {
-			return h.Fire(ctx, res)
+		s.group.Go(runCtx, "_hook:"+pubRes.Name, executor.Func(func(ctx context.Context) error {
+			return h.Fire(ctx, pubRes)
 		}), executor.Retry{Attempts: 1}, s.opts.logger)
 	}
 }
@@ -58,7 +84,7 @@ type WebhookHook struct {
 }
 
 // Fire implements Hook by POSTing the outcome as JSON.
-func (w *WebhookHook) Fire(ctx context.Context, res executor.Result) error {
+func (w *WebhookHook) Fire(ctx context.Context, res Result) error {
 	timeout := w.Timeout
 	if timeout <= 0 {
 		timeout = 5 * time.Second
@@ -69,7 +95,7 @@ func (w *WebhookHook) Fire(ctx context.Context, res executor.Result) error {
 	}
 	body := webhookPayload{
 		Job:        res.Name,
-		Outcome:    res.Outcome.String(),
+		Outcome:    res.Outcome,
 		Attempts:   res.Attempts,
 		DurationMS: res.Duration.Milliseconds(),
 		Time:       time.Now().UTC().Format(time.RFC3339),

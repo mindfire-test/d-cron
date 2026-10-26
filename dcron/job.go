@@ -37,13 +37,13 @@ type Job struct {
 	retry         executor.Retry
 	overlap       bool
 	overlapPolicy OverlapPolicy
-	queuedRun     bool
 	missedPolicy  MissedRunPolicy
 	maxLookback   time.Duration
 	maxCatchUp    int
 	busy          sync.Mutex
 
 	statusMu     sync.Mutex
+	queuedRun    bool
 	nextRun      time.Time
 	lastRun      time.Time
 	lastOutcome  string
@@ -60,6 +60,11 @@ func (j *Job) Name() string { return j.name }
 type JobOption func(*Job)
 
 // Retry configures how a job is retried after failure.
+//
+// Attempts represents total execution attempts.
+// Attempts == 1 means the job executes exactly once with 0 retries.
+// The default zero-value (Attempts: 0) defaults to 5 attempts.
+// Use WithNoRetry() to explicitly disable retries.
 type Retry struct {
 	Attempts   int
 	Backoff    time.Duration
@@ -67,6 +72,7 @@ type Retry struct {
 	MaxBackoff time.Duration
 	Jitter     bool
 	Timeout    time.Duration
+	Retryable  func(error) bool
 }
 
 // WithTimeout bounds a single execution of the job.
@@ -84,8 +90,14 @@ func WithRetry(r Retry) JobOption {
 			MaxBackoff: r.MaxBackoff,
 			Jitter:     r.Jitter,
 			Timeout:    r.Timeout,
+			Retryable:  r.Retryable,
 		}
 	}
+}
+
+// WithNoRetry configures the job to execute at most once without retries on failure.
+func WithNoRetry() JobOption {
+	return WithRetry(Retry{Attempts: 1})
 }
 
 // WithNoOverlap suppresses firing a job while its previous run is still active.

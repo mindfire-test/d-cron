@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/mindfire-test/d-cron/dcron"
-	"github.com/mindfire-test/d-cron/internal/executor"
 	"github.com/mindfire-test/d-cron/metrics"
 )
 
@@ -146,7 +145,7 @@ func TestJobsReportsRunningFlag(t *testing.T) {
 
 func TestHooksInvokedOnCompletion(t *testing.T) {
 	var fired atomic.Int64
-	hook := dcron.HookFunc(func(_ context.Context, _ executor.Result) error {
+	hook := dcron.HookFunc(func(_ context.Context, _ dcron.Result) error {
 		fired.Add(1)
 		return nil
 	})
@@ -198,7 +197,7 @@ func TestWebhookHookConstruction(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_ = w.Fire(ctx, executor.Result{Name: "j", Outcome: executor.OutcomeFailed})
+	_ = w.Fire(ctx, dcron.Result{Name: "j", Outcome: dcron.OutcomeFailed})
 	http.DefaultClient.CloseIdleConnections()
 }
 
@@ -221,9 +220,9 @@ func TestWebhookHook_HTTPDelivery(t *testing.T) {
 		Headers: map[string]string{"Authorization": "Bearer test-token"},
 	}
 
-	err := w.Fire(context.Background(), executor.Result{
+	err := w.Fire(context.Background(), dcron.Result{
 		Name:     "backup-job",
-		Outcome:  executor.OutcomeFailed,
+		Outcome:  dcron.OutcomeFailed,
 		Attempts: 3,
 		Duration: 1500 * time.Millisecond,
 		Error:    errors.New("db connection reset"),
@@ -258,7 +257,7 @@ func TestWebhookHook_HTTPDelivery(t *testing.T) {
 	defer errSrv.Close()
 
 	wFail := &dcron.WebhookHook{URL: errSrv.URL}
-	if err := wFail.Fire(context.Background(), executor.Result{Name: "job"}); err == nil {
+	if err := wFail.Fire(context.Background(), dcron.Result{Name: "job"}); err == nil {
 		t.Fatal("Fire: expected error on 500 status code, got nil")
 	}
 }

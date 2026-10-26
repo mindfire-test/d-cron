@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/mindfire-test/d-cron/internal/elector"
 )
@@ -63,6 +64,8 @@ func MigrationDDL(schema string) []string {
 		)`,
 		`CREATE INDEX IF NOT EXISTS execution_job_time_idx
 			ON ` + schema + `.execution (namespace, job_name, scheduled_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS execution_prune_idx
+			ON ` + schema + `.execution (namespace, finished_at)`,
 	}
 }
 
@@ -90,7 +93,9 @@ func Migrate(ctx context.Context, db *sql.DB, schema string) error {
 		return fmt.Errorf("store: migrate: acquire lock: %w", err)
 	}
 	defer func() {
-		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, key)
+		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer unlockCancel()
+		_, _ = conn.ExecContext(unlockCtx, `SELECT pg_advisory_unlock($1)`, key)
 	}()
 
 	tx, err := conn.BeginTx(ctx, nil)

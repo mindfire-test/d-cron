@@ -69,6 +69,10 @@ func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 		}
 		name := jobNameFromPath(r.URL.Path, "/pause")
 		if err := s.Pause(name); err != nil {
+			if errors.Is(err, ErrNotLeader) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			if errors.Is(err, ErrJobNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
@@ -87,6 +91,10 @@ func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 		}
 		name := jobNameFromPath(r.URL.Path, "/resume")
 		if err := s.Resume(name); err != nil {
+			if errors.Is(err, ErrNotLeader) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			if errors.Is(err, ErrJobNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
@@ -107,6 +115,10 @@ func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 		// Strip leading "/jobs/" prefix manually since the path may include it.
 		name = strings.TrimPrefix(name, "/jobs/")
 		if err := s.Remove(name); err != nil {
+			if errors.Is(err, ErrNotLeader) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			if errors.Is(err, ErrJobNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return

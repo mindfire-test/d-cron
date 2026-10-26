@@ -25,7 +25,8 @@ var (
 	/* ErrNilJob is returned when Add receives a nil job function. */
 	ErrNilJob = errors.New("dcron: nil job function")
 
-	/* ErrNotLeader is returned when an action requires the scheduler to be the elected leader. */
+	/* ErrNotLeader is returned when a runtime job mutation (Pause, Resume, Remove, AddDynamic)
+	is attempted against a standby replica. Mutations must be directed to the active leader replica. */
 	ErrNotLeader = errors.New("dcron: not the leader")
 
 	/* ErrJobNotFound is returned when the given job name is not registered. */

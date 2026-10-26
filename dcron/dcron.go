@@ -23,11 +23,12 @@ type Scheduler struct {
 
 	store *store.Store
 
-	mu     sync.Mutex
-	clk    *clock.Queue
-	jobs   map[string]*Job
-	leader elector.Coordinator
-	group  *executor.Group
+	mu           sync.Mutex
+	currentEpoch int64
+	clk          *clock.Queue
+	jobs         map[string]*Job
+	leader       elector.Coordinator
+	group        *executor.Group
 
 	started bool
 	runCtx  context.Context
@@ -57,12 +58,19 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 			return nil, err
 		}
 	}
-	conn, err := lockConnection(cfg, db)
+	startupTimeout := cfg.startupTimeout
+	if startupTimeout <= 0 {
+		startupTimeout = 15 * time.Second
+	}
+	startupCtx, cancel := context.WithTimeout(context.Background(), startupTimeout)
+	defer cancel()
+
+	conn, err := lockConnection(startupCtx, cfg, db)
 	if err != nil {
 		return nil, err
 	}
 
-	elector.WarnKeepalive(context.Background(), elector.NewSQLConn(conn), cfg.logger)
+	elector.WarnKeepalive(startupCtx, elector.NewSQLConn(conn), cfg.logger)
 
 	var hist *store.Store
 	if cfg.history && db != nil {
@@ -70,7 +78,7 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := store.Migrate(context.Background(), db, cfg.schema); err != nil {
+		if err := store.Migrate(startupCtx, db, cfg.schema); err != nil {
 			return nil, err
 		}
 		cfg.logger.Info("dcron: history enabled",
@@ -82,21 +90,25 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 	return newWithBackend(elector.NewStdBackend(conn), db, cfg, hist), nil
 }
 
-func lockConnection(cfg options, db *sql.DB) (*sql.Conn, error) {
+func lockConnection(ctx context.Context, cfg options, db *sql.DB) (*sql.Conn, error) {
 	if cfg.lockConn != nil {
-		return cfg.lockConn(context.Background())
+		return cfg.lockConn(ctx)
 	}
-	return db.Conn(context.Background())
+	return db.Conn(ctx)
 }
 
 func newWithBackend(backend elector.Backend, db *sql.DB, cfg options, hist *store.Store) *Scheduler {
+	el := elector.New(cfg.namespace, cfg.instance, backend, cfg.logger)
+	if cfg.pollTimeout > 0 {
+		el.SetProbeTimeout(cfg.pollTimeout)
+	}
 	return &Scheduler{
 		opts:   cfg,
 		db:     db,
 		store:  hist,
 		clk:    &clock.Queue{},
 		jobs:   make(map[string]*Job),
-		leader: elector.New(cfg.namespace, cfg.instance, backend, cfg.logger),
+		leader: el,
 		done:   make(chan struct{}),
 	}
 }
@@ -110,6 +122,13 @@ func (s *Scheduler) InstanceID() string { return s.opts.instance }
 // Namespace returns the namespace this scheduler was constructed with.
 func (s *Scheduler) Namespace() string { return s.opts.namespace }
 
+// Epoch returns the current authoritative leader epoch (0 if not leader).
+func (s *Scheduler) Epoch() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.currentEpoch
+}
+
 // Add registers a job with the scheduler.
 func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error {
 	s.mu.Lock()
@@ -117,6 +136,10 @@ func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error 
 	if s.started {
 		return ErrAlreadyStarted
 	}
+	return s.registerJobLocked(name, spec, fn, opts...)
+}
+
+func (s *Scheduler) registerJobLocked(name, spec string, fn JobFunc, opts ...JobOption) error {
 	if fn == nil {
 		return ErrNilJob
 	}
@@ -144,9 +167,9 @@ func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error 
 		return fmt.Errorf("dcron: WithSinceLastSuccess requires history store (WithHistory option)")
 	}
 	s.jobs[name] = j
-	if first := sched.Next(time.Now().In(s.opts.location)); !first.IsZero() {
+	if first := j.sched.Next(time.Now().In(s.opts.location)); !first.IsZero() {
 		j.nextRun = first
-		heap.Push(s.clk, &clock.Job{Name: name, FireAt: first, Sched: sched})
+		heap.Push(s.clk, &clock.Job{Name: name, FireAt: first, Sched: j.sched})
 	}
 	return nil
 }
@@ -190,8 +213,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.runCtx, s.cancel = context.WithCancel(ctx)
 	s.group = executor.NewGroup()
 
-	s.termCtx = s.runCtx
-	s.termCancel = func() {}
+	s.termCtx, s.termCancel = context.WithCancel(s.runCtx)
+	s.termCancel() // Cancelled until first promotion
+	s.currentEpoch = 0
 	s.done = make(chan struct{})
 	s.mu.Unlock()
 	go s.runLoop()
@@ -207,6 +231,8 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 	}
 	s.started = false
 	cancel := s.cancel
+	s.termCancel()
+	s.currentEpoch = 0
 	s.mu.Unlock()
 
 	cancel()
@@ -238,6 +264,9 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 func (s *Scheduler) Pause(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.started && s.Leadership() == LeadershipStandby {
+		return ErrNotLeader
+	}
 	j, ok := s.jobs[name]
 	if !ok {
 		return &JobNotFoundError{Name: name}
@@ -253,6 +282,9 @@ func (s *Scheduler) Pause(name string) error {
 func (s *Scheduler) Resume(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.started && s.Leadership() == LeadershipStandby {
+		return ErrNotLeader
+	}
 	j, ok := s.jobs[name]
 	if !ok {
 		return &JobNotFoundError{Name: name}
@@ -268,6 +300,9 @@ func (s *Scheduler) Resume(name string) error {
 func (s *Scheduler) Remove(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.started && s.Leadership() == LeadershipStandby {
+		return ErrNotLeader
+	}
 	if _, ok := s.jobs[name]; !ok {
 		return &JobNotFoundError{Name: name}
 	}
@@ -280,33 +315,11 @@ func (s *Scheduler) Remove(name string) error {
 func (s *Scheduler) AddDynamic(name, spec string, fn JobFunc, opts ...JobOption) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if fn == nil {
-		return ErrNilJob
+	if s.started && s.Leadership() == LeadershipStandby {
+		return ErrNotLeader
 	}
-	if _, exists := s.jobs[name]; exists {
-		return &JobExistsError{Name: name}
-	}
-	var sched clock.Schedule
-	var err error
-	if s.opts.secondsField {
-		sched, err = clock.ParseSeconds(spec, s.opts.location)
-	} else {
-		sched, err = clock.Parse(spec, s.opts.location)
-	}
-	if err != nil {
-		return &InvalidSpecError{Name: name, Spec: spec}
-	}
-	j := &Job{name: name, spec: spec, sched: sched, fn: fn, overlap: true}
-	for _, opt := range opts {
-		opt(j)
-	}
-	if j.missedPolicy == MissedCatchUp && s.store == nil {
-		return fmt.Errorf("dcron: MissedCatchUp policy requires history store (WithHistory option)")
-	}
-	s.jobs[name] = j
-	if first := sched.Next(time.Now().In(s.opts.location)); !first.IsZero() {
-		j.nextRun = first
-		heap.Push(s.clk, &clock.Job{Name: name, FireAt: first, Sched: sched})
+	if err := s.registerJobLocked(name, spec, fn, opts...); err != nil {
+		return err
 	}
 	s.opts.logger.Info("dcron: job added dynamically", "job", name, "spec", spec)
 	return nil

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 )
 
 // State is the membership state of a scheduler in a namespace.
@@ -90,11 +91,12 @@ type Transition struct {
 
 // Elector owns the advisory lock for one namespace on one dedicated backend.
 type Elector struct {
-	backend  Backend
-	key      int64
-	ns       string
-	instance string
-	log      *slog.Logger
+	backend      Backend
+	key          int64
+	ns           string
+	instance     string
+	log          *slog.Logger
+	probeTimeout time.Duration
 
 	mu    sync.Mutex
 	state State
@@ -109,16 +111,27 @@ func New(namespace, instance string, backend Backend, log *slog.Logger) *Elector
 		log = slog.Default()
 	}
 	return &Elector{
-		backend:  backend,
-		key:      LockKey(namespace),
-		ns:       namespace,
-		instance: instance,
-		log:      log,
-		state:    StateUnknown,
+		backend:      backend,
+		key:          LockKey(namespace),
+		ns:           namespace,
+		instance:     instance,
+		log:          log,
+		probeTimeout: 5 * time.Second,
+		state:        StateUnknown,
 	}
 }
 
+// SetProbeTimeout sets the per-attempt timeout for backend queries.
+func (e *Elector) SetProbeTimeout(d time.Duration) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.probeTimeout = d
+}
+
 // Subscribe returns a channel that receives state transitions.
+//
+// This is primarily intended for integration tests and diagnostic observers to receive
+// election event streams. The scheduler loop monitors leadership state directly via Acquire.
 func (e *Elector) Subscribe() <-chan Transition {
 	sub := make(chan Transition, 16)
 	e.mu.Lock()
@@ -160,6 +173,13 @@ func (e *Elector) Epoch() int64 {
 	return e.epoch
 }
 
+// SetEpoch explicitly sets the leader epoch.
+func (e *Elector) SetEpoch(epoch int64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.epoch = epoch
+}
+
 func (e *Elector) emit(from, to State, reason string) {
 	t := Transition{From: from, To: to, Epoch: e.epoch, Reason: reason}
 	for _, sub := range e.subs {
@@ -175,12 +195,58 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	if err := ctx.Err(); err != nil {
+		return false, e.epoch, err
+	}
+
+	probeTimeout := e.probeTimeout
+	if probeTimeout <= 0 {
+		probeTimeout = 5 * time.Second
+	}
+
+	makeProbeCtx := func() (context.Context, context.CancelFunc) {
+		if _, hasDeadline := ctx.Deadline(); hasDeadline {
+			return ctx, func() {}
+		}
+		return context.WithTimeout(ctx, probeTimeout)
+	}
+
 	switch e.state {
 	case StateLeader:
-		holds, err := e.backend.HoldsLock(ctx, e.key)
-		if err != nil {
+		const maxProbeAttempts = 3
+		var holds bool
+		var probeErr error
+		for attempt := 0; attempt < maxProbeAttempts; attempt++ {
+			if ctx.Err() != nil {
+				return false, e.epoch, ctx.Err()
+			}
+			pCtx, cancel := makeProbeCtx()
+			holds, probeErr = e.backend.HoldsLock(pCtx, e.key)
+			cancel()
+
+			if probeErr == nil {
+				break
+			}
+			if errors.Is(probeErr, context.Canceled) {
+				return false, e.epoch, probeErr
+			}
+
+			// Transient database timeout or probe error:
+			// Do not immediately assume leadership has been lost.
+			if attempt < maxProbeAttempts-1 {
+				e.log.Warn("elector: transient probe failure, retrying",
+					"attempt", attempt+1, "err", probeErr)
+				select {
+				case <-ctx.Done():
+					return false, e.epoch, ctx.Err()
+				case <-time.After(time.Duration(20*(attempt+1)) * time.Millisecond):
+				}
+			}
+		}
+
+		if probeErr != nil {
 			e.demote("db_unavailable")
-			return false, e.epoch, err
+			return false, e.epoch, probeErr
 		}
 		if holds {
 			return false, e.epoch, nil
@@ -188,10 +254,14 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 
 		e.demote("lost_lock")
 		return false, e.epoch, nil
+
 	case StateDemoting:
 		return false, e.epoch, nil
+
 	default:
-		acquired, pid, err := e.backend.TryLock(ctx, e.key)
+		pCtx, cancel := makeProbeCtx()
+		acquired, pid, err := e.backend.TryLock(pCtx, e.key)
+		cancel()
 		if err != nil {
 			return false, e.epoch, err
 		}
