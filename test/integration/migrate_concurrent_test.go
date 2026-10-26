@@ -38,7 +38,7 @@ func TestMigrate_TenReplicasConcurrent(t *testing.T) {
 		}
 	}
 
-	var tables, indexes int
+	var tables, jobStateTables, timeIdx, pruneIdx, pruneRunningIdx int
 	if err := db.QueryRowContext(ctx,
 		`SELECT count(*) FROM information_schema.tables
 		 WHERE table_schema = $1 AND table_name = 'execution'`,
@@ -46,13 +46,31 @@ func TestMigrate_TenReplicasConcurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.QueryRowContext(ctx,
-		`SELECT count(*) FROM pg_indexes
-		 WHERE schemaname = $1 AND indexname = 'execution_job_time_idx'`,
-		schema).Scan(&indexes); err != nil {
+		`SELECT count(*) FROM information_schema.tables
+		 WHERE table_schema = $1 AND table_name = 'job_state'`,
+		schema).Scan(&jobStateTables); err != nil {
 		t.Fatal(err)
 	}
-	if tables != 1 || indexes != 1 {
-		t.Fatalf("converged to tables=%d indexes=%d; want exactly one of each", tables, indexes)
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM pg_indexes
+		 WHERE schemaname = $1 AND indexname = 'execution_job_time_idx'`,
+		schema).Scan(&timeIdx); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM pg_indexes
+		 WHERE schemaname = $1 AND indexname = 'execution_prune_idx'`,
+		schema).Scan(&pruneIdx); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM pg_indexes
+		 WHERE schemaname = $1 AND indexname = 'execution_prune_running_idx'`,
+		schema).Scan(&pruneRunningIdx); err != nil {
+		t.Fatal(err)
+	}
+	if tables != 1 || jobStateTables != 1 || timeIdx != 1 || pruneIdx != 1 || pruneRunningIdx != 1 {
+		t.Fatalf("converged to execution_tables=%d job_state_tables=%d time_idx=%d prune_idx=%d prune_running_idx=%d; want exactly 1 of each", tables, jobStateTables, timeIdx, pruneIdx, pruneRunningIdx)
 	}
 
 	t.Cleanup(func() {

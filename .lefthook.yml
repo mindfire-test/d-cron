@@ -46,4 +46,8 @@ pre-push:
     build:
       run: go build ./...
     test:
+      # Runs fast unit test suite across all packages.
+      # Real PostgreSQL integration tests live in separate module test/integration
+      # and are run via: cd test/integration && go test -tags integration .
+      # or automatically in CI.
       run: go test ./...

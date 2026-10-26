@@ -46,7 +46,8 @@ func (b *fakeBackendCoord) Release(_ context.Context, _ int64) (bool, error) {
 	return was, nil
 }
 
-func (b *fakeBackendCoord) Close() error { return nil }
+func (b *fakeBackendCoord) Close() error               { return nil }
+func (b *fakeBackendCoord) Ping(context.Context) error { return nil }
 
 // RunCoordinatorConformance runs the standard Coordinator contract test suite
 // against any elector.Coordinator implementation. factory must return a freshly

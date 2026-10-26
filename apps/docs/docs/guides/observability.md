@@ -78,12 +78,15 @@ http.Handle("/api/v1/dcron/", http.StripPrefix("/api/v1/dcron", dcron.AdminHandl
 
 ### Endpoints Reference
 
+> **Note on Cluster Topology:**
+> Job mutations (`/pause`, `/resume`, `DELETE`) are applied to the process-local in-memory state of the active **Leader** replica. Mutation requests sent to a standby replica are rejected with `409 Conflict` (`dcron: not the leader`). Ensure administrative traffic is routed to the active leader instance.
+
 | Method | Endpoint Path | Description | Response Status |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/status` | Returns node ID, namespace, leadership flag, and all job statuses | `200 OK` (JSON) |
-| `POST` | `/jobs/{name}/pause` | Pauses future automatic triggers for a specific job | `204 No Content` |
-| `POST` | `/jobs/{name}/resume` | Resumes automatic triggers for a previously paused job | `204 No Content` |
-| `DELETE` | `/jobs/{name}` | Unregisters a job from the scheduler at runtime | `204 No Content` |
+| `POST` | `/jobs/{name}/pause` | Pauses future automatic triggers for a specific job on the leader | `204 No Content` / `409 Conflict` (Standby) |
+| `POST` | `/jobs/{name}/resume` | Resumes automatic triggers for a previously paused job on the leader | `204 No Content` / `409 Conflict` (Standby) |
+| `DELETE` | `/jobs/{name}` | Unregisters a job from the leader at runtime | `204 No Content` / `409 Conflict` (Standby) |
 
 #### Example REST Invocations
 

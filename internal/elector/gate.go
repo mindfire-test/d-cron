@@ -45,9 +45,14 @@ func SessionStableFromPIDs(p1, p2 int) bool {
 }
 
 // ProbeSessionStable takes two pg_backend_pid() samples on q and reports
-// whether they are equal (session-stable). A mismatch, or an error, means q is
-// backed by a transaction-mode pooler (or is otherwise unsafe for advisory
-// locks) and the caller must refuse to start.
+// whether they are equal (session-stable).
+//
+// Note (SRS C-01): Runtime automatic pooler detection via ProbeSessionStable was
+// retired from the standard scheduler startup path because transaction-mode poolers
+// (such as PgBouncer) frequently return the same backend PID across consecutive round-trips
+// on an idle pool, producing false negatives. The scheduler therefore requires operator assertion
+// via WithSessionStableConnection() or WithDedicatedLockConn(). ProbeSessionStable is
+// retained as an internal diagnostic and test utility.
 func ProbeSessionStable(ctx context.Context, q Querier) (bool, error) {
 	var p1, p2 int
 	if err := q.QueryRowContext(ctx, sqlPID).Scan(&p1); err != nil {

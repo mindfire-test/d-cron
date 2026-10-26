@@ -23,6 +23,7 @@ type fakeBackend struct {
 	nextPID  int
 	tryErr   error
 	holdsErr error
+	holdsFn  func(ctx context.Context, key int64) (bool, error)
 	relErr   error
 	released int
 	tries    int
@@ -52,10 +53,13 @@ func (f *fakeBackend) TryLock(ctx context.Context, _ int64) (bool, int, error) {
 	return true, f.pid, nil
 }
 
-func (f *fakeBackend) HoldsLock(ctx context.Context, _ int64) (bool, error) {
+func (f *fakeBackend) HoldsLock(ctx context.Context, key int64) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.holds++
+	if f.holdsFn != nil {
+		return f.holdsFn(ctx, key)
+	}
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -79,7 +83,8 @@ func (f *fakeBackend) Release(ctx context.Context, _ int64) (bool, error) {
 	return true, nil
 }
 
-func (f *fakeBackend) Close() error { return nil }
+func (f *fakeBackend) Close() error               { return nil }
+func (f *fakeBackend) Ping(context.Context) error { return nil }
 
 func TestLockKeyDeterministic(t *testing.T) {
 	a := elector.LockKey("billing")
@@ -308,5 +313,146 @@ func TestPIDTracksCurrentHolder(t *testing.T) {
 	}
 	if e.PID() != 6 {
 		t.Fatalf("PID() = %d; want 6", e.PID())
+	}
+}
+
+func TestAcquireTransientProbeTimeoutRetriesAndMaintainsLeadership(t *testing.T) {
+	fb := newFakeBackend()
+	e := elector.New("ns", "test", fb, testLogger())
+	// Acquire leadership initially
+	promoted, epoch, err := e.Acquire(context.Background())
+	if err != nil || !promoted || epoch != 1 {
+		t.Fatalf("first Acquire promoted = %v, epoch = %d, err = %v", promoted, epoch, err)
+	}
+
+	transitions := e.Subscribe()
+
+	// Simulate transient timeout on attempt 1, success on attempt 2
+	var attempts int
+	fb.holdsFn = func(ctx context.Context, key int64) (bool, error) {
+		attempts++
+		if attempts == 1 {
+			return false, context.DeadlineExceeded
+		}
+		return true, nil
+	}
+
+	promoted, epoch, err = e.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("Acquire failed on transient error: %v", err)
+	}
+	if promoted {
+		t.Fatal("Acquire reported promoted when already leader")
+	}
+	if epoch != 1 {
+		t.Fatalf("epoch changed on transient probe failure: got %d, want 1", epoch)
+	}
+	if !e.IsLeader() {
+		t.Fatal("elector lost leadership on transient probe timeout")
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 probe attempts, got %d", attempts)
+	}
+
+	select {
+	case tr := <-transitions:
+		t.Fatalf("unexpected transition emitted: %+v", tr)
+	default:
+	}
+}
+
+func TestAcquirePersistentProbeTimeoutDemotes(t *testing.T) {
+	fb := newFakeBackend()
+	e := elector.New("ns", "test", fb, testLogger())
+	// Acquire leadership initially
+	if _, _, err := e.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	transitions := e.Subscribe()
+
+	// Fail all probe attempts with timeout
+	var attempts int
+	fb.holdsFn = func(ctx context.Context, key int64) (bool, error) {
+		attempts++
+		return false, context.DeadlineExceeded
+	}
+
+	promoted, epoch, err := e.Acquire(context.Background())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if promoted {
+		t.Fatal("Acquire reported promoted")
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 probe attempts before demoting, got %d", attempts)
+	}
+	if e.IsLeader() {
+		t.Fatal("elector remained leader after persistent timeouts")
+	}
+	if got := e.State(); got != elector.StateDemoting {
+		t.Fatalf("expected StateDemoting, got %s", got)
+	}
+	if epoch != 2 {
+		t.Fatalf("expected epoch 2 after demotion, got %d", epoch)
+	}
+
+	select {
+	case tr := <-transitions:
+		if tr.From != elector.StateLeader || tr.To != elector.StateDemoting || tr.Reason != "db_unavailable" {
+			t.Fatalf("unexpected transition: %+v", tr)
+		}
+	default:
+		t.Fatal("expected transition event for demotion, got none")
+	}
+}
+
+func TestAcquireProbeHonorsContextCancellationDuringRetry(t *testing.T) {
+	fb := newFakeBackend()
+	e := elector.New("ns", "test", fb, testLogger())
+	if _, _, err := e.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	fb.holdsFn = func(c context.Context, key int64) (bool, error) {
+		cancel()
+		return false, context.DeadlineExceeded
+	}
+
+	_, _, err := e.Acquire(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if e.State() == elector.StateDemoting {
+		t.Fatal("elector transitioned to StateDemoting on parent context cancellation")
+	}
+}
+
+func TestSetProbeTimeoutEnforced(t *testing.T) {
+	fb := newFakeBackend()
+	e := elector.New("ns", "test", fb, testLogger())
+	e.SetProbeTimeout(100 * time.Millisecond)
+
+	var probeDeadline time.Time
+	var hasDeadline bool
+	fb.holdsFn = func(ctx context.Context, key int64) (bool, error) {
+		probeDeadline, hasDeadline = ctx.Deadline()
+		return true, nil
+	}
+
+	if _, _, err := e.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := e.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !hasDeadline {
+		t.Fatal("probe context had no deadline")
+	}
+	remaining := time.Until(probeDeadline)
+	if remaining <= 0 || remaining > 100*time.Millisecond {
+		t.Fatalf("probe deadline remaining = %v; expected <= 100ms", remaining)
 	}
 }

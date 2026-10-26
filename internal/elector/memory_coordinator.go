@@ -125,5 +125,8 @@ func (m *MemoryCoordinator) Release(_ context.Context) error {
 // Close is a no-op for the in-memory coordinator (implements [Coordinator]).
 func (m *MemoryCoordinator) Close() error { return nil }
 
+// Ping is a no-op for the in-memory coordinator (implements [Coordinator]).
+func (m *MemoryCoordinator) Ping(_ context.Context) error { return nil }
+
 // Compile-time check that MemoryCoordinator implements Coordinator.
 var _ Coordinator = (*MemoryCoordinator)(nil)

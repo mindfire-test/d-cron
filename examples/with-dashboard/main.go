@@ -141,9 +141,15 @@ func main() {
 				return recentHistory(ctx, db, sched.Namespace(), 20)
 			},
 		)))
-	srv := &http.Server{Addr: ":8080", Handler: mux}
+	// Bind to localhost only by default so unauthenticated internal management UI
+	// is not exposed across external or container network interfaces.
+	srv := &http.Server{
+		Addr:              "127.0.0.1:8080",
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	go func() {
-		log.Println("dashboard on http://localhost:8080/internal/dcron")
+		log.Println("dashboard on http://127.0.0.1:8080/internal/dcron")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("dashboard server: %v", err)
 		}

@@ -6,18 +6,30 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/mindfire-test/d-cron/internal/elector"
 )
 
 var schemaID = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
+// QuoteIdent wraps an SQL identifier in double quotes and escapes embedded quotes.
+func QuoteIdent(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
+func quoteIdent(s string) string {
+	return QuoteIdent(s)
+}
+
 // ErrInvalidSchema is returned when the configured schema name fails the
 // allowlist: non-lowercase identifiers, quoted identifiers, and anything else
 // that could allow an injection are refused rather than interpolated.
 var ErrInvalidSchema = errors.New("store: schema name must be a lowercase SQL identifier")
 
-func validateSchema(schema string) error {
+// ValidateSchema verifies that the schema name conforms to the lowercase identifier allowlist.
+func ValidateSchema(schema string) error {
 	if schema == "public" {
 		return fmt.Errorf("%w: %q is reserved; d-cron never creates its tables in public", ErrInvalidSchema, schema)
 	}
@@ -25,6 +37,10 @@ func validateSchema(schema string) error {
 		return fmt.Errorf("%w: %q", ErrInvalidSchema, schema)
 	}
 	return nil
+}
+
+func validateSchema(schema string) error {
+	return ValidateSchema(schema)
 }
 
 // SchemaLockKey derives the advisory-lock key that serialises schema
@@ -39,15 +55,16 @@ func SchemaLockKey(schema string) int64 {
 // MigrationDDL is the idempotent DDL applied under the migration lock. schema
 // has already passed the allowlist.
 func MigrationDDL(schema string) []string {
+	qSchema := quoteIdent(schema)
 	return []string{
-		`CREATE SCHEMA IF NOT EXISTS ` + schema,
-		`CREATE TABLE IF NOT EXISTS ` + schema + `.leader_epoch (
+		`CREATE SCHEMA IF NOT EXISTS ` + qSchema,
+		`CREATE TABLE IF NOT EXISTS ` + qSchema + `.` + quoteIdent("leader_epoch") + ` (
 			namespace   text PRIMARY KEY,
 			epoch       bigint      NOT NULL,
 			instance_id text        NOT NULL,
 			acquired_at timestamptz NOT NULL DEFAULT now()
 		)`,
-		`CREATE TABLE IF NOT EXISTS ` + schema + `.execution (
+		`CREATE TABLE IF NOT EXISTS ` + qSchema + `.` + quoteIdent("execution") + ` (
 			id            bigserial PRIMARY KEY,
 			namespace     text        NOT NULL,
 			job_name      text        NOT NULL,
@@ -61,8 +78,21 @@ func MigrationDDL(schema string) []string {
 			instance_id   text        NOT NULL,
 			leader_epoch  bigint      NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS ` + qSchema + `.` + quoteIdent("job_state") + ` (
+			namespace   text        NOT NULL,
+			job_name    text        NOT NULL,
+			paused      boolean     NOT NULL DEFAULT false,
+			removed     boolean     NOT NULL DEFAULT false,
+			spec        text        NOT NULL DEFAULT '',
+			updated_at  timestamptz NOT NULL DEFAULT now(),
+			PRIMARY KEY (namespace, job_name)
+		)`,
 		`CREATE INDEX IF NOT EXISTS execution_job_time_idx
-			ON ` + schema + `.execution (namespace, job_name, scheduled_at DESC)`,
+			ON ` + qSchema + `.` + quoteIdent("execution") + ` (namespace, job_name, scheduled_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS execution_prune_idx
+			ON ` + qSchema + `.` + quoteIdent("execution") + ` (namespace, finished_at)`,
+		`CREATE INDEX IF NOT EXISTS execution_prune_running_idx
+			ON ` + qSchema + `.` + quoteIdent("execution") + ` (namespace, started_at) WHERE status = 'running'`,
 	}
 }
 
@@ -90,7 +120,9 @@ func Migrate(ctx context.Context, db *sql.DB, schema string) error {
 		return fmt.Errorf("store: migrate: acquire lock: %w", err)
 	}
 	defer func() {
-		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, key)
+		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer unlockCancel()
+		_, _ = conn.ExecContext(unlockCtx, `SELECT pg_advisory_unlock($1)`, key)
 	}()
 
 	tx, err := conn.BeginTx(ctx, nil)

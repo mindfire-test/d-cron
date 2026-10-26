@@ -43,4 +43,11 @@ func (a lockBackendAdapter) Release(ctx context.Context, key int64) (bool, error
 
 func (a lockBackendAdapter) Close() error { return a.b.Close() }
 
+func (a lockBackendAdapter) Ping(ctx context.Context) error {
+	if p, ok := a.b.(interface{ Ping(context.Context) error }); ok {
+		return p.Ping(ctx)
+	}
+	return nil
+}
+
 var _ elector.Backend = lockBackendAdapter{}
