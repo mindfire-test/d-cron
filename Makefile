@@ -1,9 +1,9 @@
 # Development toolchain for d-cron.
 #
 # The Makefile assumes the following tool versions are installed (see
-# DEVELOPMENT.md):
+# CONTRIBUTING.md):
 #   - Go 1.23+            (go)
-#   - gofumpt v0.10.0     (gofumpt)
+#   - gofumpt v0.7.0      (gofumpt)
 #   - golangci-lint v1.64.8 (golangci-lint)
 #
 # It delegates to the standard commands so local dev and CI stay in sync.

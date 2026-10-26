@@ -14,6 +14,5 @@
 /ui/ @mindfire-test
 /otel/ @mindfire-test
 
-# CI workflows and security policies
+# CI workflows
 /.github/ @mindfire-test
-/SECURITY.md @mindfire-test
