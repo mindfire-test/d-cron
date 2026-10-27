@@ -14,8 +14,7 @@ package ui
 import "embed"
 
 // Assets holds the embedded dashboard assets (HTML, CSS, and JS). It is
-// exported for mounting on the application router once the dashboard is
-// implemented.
+// exported for mounting directly on custom application routers if needed.
 //
 //go:embed assets
 var Assets embed.FS

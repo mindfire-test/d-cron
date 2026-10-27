@@ -417,3 +417,57 @@ func BenchmarkCronNext_Standard5Field(b *testing.B) {
 		_ = s.Next(from)
 	}
 }
+
+func TestQueue_Realign(t *testing.T) {
+	t.Parallel()
+
+	schedEvery1m, err := clock.Parse("@every 1m", time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schedCron, err := clock.Parse("0 * * * *", time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tPast := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	tNow := time.Date(2024, 1, 1, 12, 30, 0, 0, time.UTC)
+
+	// Past @once schedule: should be discarded
+	schedPastOnce := clock.NewOnce(tPast.Add(30*time.Minute), time.UTC)
+	// Future @once schedule: should be retained
+	schedFutureOnce := clock.NewOnce(tNow.Add(15*time.Minute), time.UTC)
+
+	q := &clock.Queue{
+		{Name: "every-1m", FireAt: tPast.Add(time.Minute), Sched: schedEvery1m},
+		{Name: "cron-hourly", FireAt: tPast.Add(time.Hour), Sched: schedCron},
+		{Name: "past-once", FireAt: tPast.Add(30 * time.Minute), Sched: schedPastOnce},
+		{Name: "future-once", FireAt: tNow.Add(15 * time.Minute), Sched: schedFutureOnce},
+	}
+
+	// Prior to realign, all past jobs are due at tNow
+	if q.Len() != 4 {
+		t.Fatalf("expected 4 jobs in queue, got %d", q.Len())
+	}
+
+	// Realign to tNow
+	q.Realign(tNow)
+
+	// past-once must be discarded, remaining 3 jobs
+	if q.Len() != 3 {
+		t.Fatalf("expected 3 jobs after realign, got %d", q.Len())
+	}
+
+	// NextDue(tNow) must return 0 jobs because all jobs must have FireAt > tNow
+	due := q.NextDue(tNow)
+	if len(due) != 0 {
+		t.Fatalf("expected 0 due jobs immediately after realign at tNow, got %d", len(due))
+	}
+
+	// Verify the remaining jobs are in the future
+	for _, j := range *q {
+		if !j.FireAt.After(tNow) {
+			t.Errorf("job %s has FireAt=%s which is not after tNow=%s", j.Name, j.FireAt, tNow)
+		}
+	}
+}

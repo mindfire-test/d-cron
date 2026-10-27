@@ -84,4 +84,9 @@ func TestNoopRecorder(t *testing.T) {
 	n.JobFinished("job-1", metrics.OutcomeOK, 100, true)
 	n.FencedWrite()
 	n.MissedRun("job-1")
+	n.RecordFailure("job-1")
+
+	if metrics.KeyRecordFailures != "dcron_record_failures_total" {
+		t.Errorf("unexpected KeyRecordFailures: %s", metrics.KeyRecordFailures)
+	}
 }

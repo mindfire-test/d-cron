@@ -22,6 +22,7 @@ type fakeBackend struct {
 	pid      int
 	nextPID  int
 	tryErr   error
+	tryFn    func(ctx context.Context, key int64) (bool, int, error)
 	holdsErr error
 	holdsFn  func(ctx context.Context, key int64) (bool, error)
 	relErr   error
@@ -34,10 +35,17 @@ func newFakeBackend() *fakeBackend {
 	return &fakeBackend{nextPID: 1}
 }
 
-func (f *fakeBackend) TryLock(ctx context.Context, _ int64) (bool, int, error) {
+func (f *fakeBackend) TryLock(ctx context.Context, key int64) (bool, int, error) {
+	f.mu.Lock()
+	f.tries++
+	fn := f.tryFn
+	f.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, key)
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.tries++
 	if err := ctx.Err(); err != nil {
 		return false, 0, err
 	}
@@ -454,5 +462,149 @@ func TestSetProbeTimeoutEnforced(t *testing.T) {
 	remaining := time.Until(probeDeadline)
 	if remaining <= 0 || remaining > 100*time.Millisecond {
 		t.Fatalf("probe deadline remaining = %v; expected <= 100ms", remaining)
+	}
+}
+
+// TestFinalizeDemotion_ConcurrentStateAccess verifies that FinalizeDemotion is safe
+// to call concurrently with State, IsLeader, Epoch, PID, and Subscribe under -race.
+func TestFinalizeDemotion_ConcurrentStateAccess(t *testing.T) {
+	fb := newFakeBackend()
+	e := elector.New("ns", "test", fb, testLogger())
+
+	// Promote then demote
+	if _, _, err := e.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fb.held = false
+	if _, _, err := e.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if e.State() != elector.StateDemoting {
+		t.Fatalf("expected StateDemoting, got %s", e.State())
+	}
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < 100; j++ {
+				_ = e.State()
+				_ = e.IsLeader()
+				_ = e.Epoch()
+				_ = e.PID()
+			}
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		e.FinalizeDemotion()
+	}()
+
+	close(start)
+	wg.Wait()
+
+	if e.State() != elector.StateStandby {
+		t.Fatalf("expected StateStandby after FinalizeDemotion, got %s", e.State())
+	}
+}
+
+// TestAcquire_NonBlockingStateReadsDuringBackendQuery proves that e.mu is NOT held
+// across backend network round trips, allowing state inspections to return immediately.
+func TestAcquire_NonBlockingStateReadsDuringBackendQuery(t *testing.T) {
+	fb := newFakeBackend()
+	e := elector.New("ns", "test", fb, testLogger())
+
+	inBackend := make(chan struct{})
+	unblockBackend := make(chan struct{})
+
+	fb.tryFn = func(ctx context.Context, key int64) (bool, int, error) {
+		close(inBackend)
+		<-unblockBackend
+		return true, 42, nil
+	}
+
+	acquireDone := make(chan struct{})
+	go func() {
+		defer close(acquireDone)
+		promoted, epoch, err := e.Acquire(context.Background())
+		if err != nil || !promoted || epoch != 1 {
+			t.Errorf("Acquire returned promoted=%v, epoch=%d, err=%v", promoted, epoch, err)
+		}
+	}()
+
+	// Wait until Acquire is actively blocked inside fb.tryFn
+	<-inBackend
+
+	// Now verify that state reads succeed immediately within 50ms without waiting for backend
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 50; i++ {
+			_ = e.State()
+			_ = e.IsLeader()
+			_ = e.Epoch()
+			_ = e.PID()
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Succeeded immediately without blocking on the backend!
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("state reads blocked while backend query was in flight (e.mu held across DB call)")
+	}
+
+	close(unblockBackend)
+	<-acquireDone
+
+	if e.State() != elector.StateLeader {
+		t.Fatalf("expected StateLeader, got %s", e.State())
+	}
+}
+
+// TestAcquire_StateChangedDuringBackendQuery verifies that if state transitions
+// (e.g. Release) while a backend query is in-flight, the stale acquisition result
+// does not resurrect leadership and releases any acquired backend lock.
+func TestAcquire_StateChangedDuringBackendQuery(t *testing.T) {
+	fb := newFakeBackend()
+	e := elector.New("ns", "test", fb, testLogger())
+
+	inBackend := make(chan struct{})
+	unblockBackend := make(chan struct{})
+
+	fb.tryFn = func(ctx context.Context, key int64) (bool, int, error) {
+		close(inBackend)
+		<-unblockBackend
+		return true, 101, nil
+	}
+
+	acquireDone := make(chan struct{})
+	go func() {
+		defer close(acquireDone)
+		promoted, _, _ := e.Acquire(context.Background())
+		if promoted {
+			t.Errorf("expected promoted=false due to intervening state change")
+		}
+	}()
+
+	<-inBackend
+
+	// Simulate Release / shutdown while Acquire was waiting on backend
+	if err := e.Release(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	close(unblockBackend)
+	<-acquireDone
+
+	if e.State() == elector.StateLeader {
+		t.Fatal("elector resurrected to StateLeader despite Release occurring during Acquire")
 	}
 }

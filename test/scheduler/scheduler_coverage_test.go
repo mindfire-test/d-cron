@@ -267,3 +267,183 @@ func TestScheduler_FireDue_ReducedLockContention(t *testing.T) {
 	defer cancel()
 	_ = s.Stop(ctx)
 }
+
+// TestScheduler_MissedSkip_PromotionDoesNotReplayStaleRuns simulates a replica running
+// on standby for an extended period, then being promoted to leader. It proves that
+// MissedSkip discards stale heap entries from standby and does NOT replay missed runs.
+func TestScheduler_MissedSkip_PromotionDoesNotReplayStaleRuns(t *testing.T) {
+	t.Parallel()
+
+	b := newSchedBackend()
+	b.held = true // lock is held by another active leader instance
+
+	s := testScheduler(b, dcron.WithPollInterval(5*time.Millisecond))
+	var runs atomic.Int32
+
+	err := s.Add("standby-skip-job", "@every 1m", func(ctx context.Context) error {
+		runs.Add(1)
+		return nil
+	}, dcron.WithMissedRunPolicy(dcron.MissedSkip))
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// 1. Confirm instance starts as standby
+	time.Sleep(20 * time.Millisecond)
+	if s.Leadership() != dcron.LeadershipStandby {
+		t.Fatalf("expected standby, got %v", s.Leadership())
+	}
+
+	// 2. Simulate leader failover: release lock so this standby gets promoted
+	b.mu.Lock()
+	b.held = false
+	b.mu.Unlock()
+
+	// Wait for promotion to leader
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.Leadership() == dcron.LeadershipLeader {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if s.Leadership() != dcron.LeadershipLeader {
+		t.Fatalf("expected promotion to leader, got %v", s.Leadership())
+	}
+
+	// 3. Let several poll cycles run as leader
+	time.Sleep(100 * time.Millisecond)
+
+	// Under MissedSkip, no runs should have executed because the schedule is 1m in the future
+	if got := runs.Load(); got != 0 {
+		t.Fatalf("expected 0 runs after promotion with MissedSkip, got %d (stale standby runs replayed!)", got)
+	}
+
+	// 4. Verify NextRun is in the future
+	jobs := s.Jobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	now := time.Now()
+	if !jobs[0].NextRun.After(now) {
+		t.Fatalf("expected NextRun > now (%s), got NextRun = %s", now, jobs[0].NextRun)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = s.Stop(ctx)
+}
+
+// TestScheduler_WithLoggerNil_Safe proves that passing WithLogger(nil) does not panic
+// and defaults cleanly to slog.Default().
+func TestScheduler_WithLoggerNil_Safe(t *testing.T) {
+	t.Parallel()
+
+	s := testScheduler(newSchedBackend(), dcron.WithLogger(nil))
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = s.Stop(ctx)
+}
+
+// TestScheduler_JobLastRun_Updated proves that running a job updates its LastRun timestamp
+// reported by s.Jobs().
+func TestScheduler_JobLastRun_Updated(t *testing.T) {
+	t.Parallel()
+
+	s := testScheduler(newSchedBackend())
+	var ran atomic.Bool
+
+	err := s.Add("last-run-job", "@every 5ms", func(ctx context.Context) error {
+		ran.Store(true)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Before start, LastRun should be zero
+	jobs := s.Jobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	if !jobs[0].LastRun.IsZero() {
+		t.Fatalf("expected initial LastRun to be zero, got %v", jobs[0].LastRun)
+	}
+
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Wait for job to execute
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if ran.Load() {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !ran.Load() {
+		t.Fatal("job did not run")
+	}
+
+	time.Sleep(20 * time.Millisecond)
+
+	jobs = s.Jobs()
+	if jobs[0].LastRun.IsZero() {
+		t.Fatal("expected LastRun to be non-zero after job execution")
+	}
+	if time.Since(jobs[0].LastRun) > 2*time.Second {
+		t.Fatalf("expected LastRun to be recent, got %v", jobs[0].LastRun)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = s.Stop(ctx)
+}
+
+// TestScheduler_StandbyPollError_ThrottlingAndRecovery tests that leadership polling errors
+// are throttled without panics, and the scheduler cleanly recovers when connectivity is restored.
+func TestScheduler_StandbyPollError_ThrottlingAndRecovery(t *testing.T) {
+	t.Parallel()
+
+	b := newSchedBackend()
+	b.tryErr = errors.New("db connection lost")
+
+	s := testScheduler(b, dcron.WithPollInterval(5*time.Millisecond))
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Poll several times with errors active
+	time.Sleep(30 * time.Millisecond)
+
+	// Clear the error so next poll succeeds and recovers
+	b.mu.Lock()
+	b.tryErr = nil
+	b.mu.Unlock()
+
+	// Wait for recovery and promotion
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.Leadership() == dcron.LeadershipLeader {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if s.Leadership() != dcron.LeadershipLeader {
+		t.Fatalf("expected promotion after recovery, got %v", s.Leadership())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = s.Stop(ctx)
+}

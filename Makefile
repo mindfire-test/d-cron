@@ -12,10 +12,10 @@ GO        ?= go
 GOFUMPT   ?= gofumpt
 GOLANGCI  ?= golangci-lint
 
-.PHONY: all fmt check vet lint test build tidy hooks ci
+.PHONY: all fmt check vet lint godoccheck test build tidy hooks ci
 
 # Default: the full pre-commit / CI gate.
-all: fmt check vet lint test build
+all: fmt check vet lint godoccheck test build
 
 # Format all Go source with gofumpt (in place).
 fmt:
@@ -33,6 +33,10 @@ vet:
 lint:
 	$(GOLANGCI) run
 
+# Verify Go documentation coverage.
+godoccheck:
+	$(GO) run ./internal/tools/godoccheck
+
 # Run all tests.
 test:
 	$(GO) test ./...
@@ -49,9 +53,9 @@ tidy:
 hooks:
 	lefthook install
 
-# Run every commit gate locally: format -> vet -> lint -> build -> test, then
+# Run every commit gate locally: format -> vet -> lint -> godoccheck -> build -> test, then
 # validate a Conventional Commits message through the committed commit-msg hook.
-ci: fmt vet lint build test
+ci: fmt vet lint godoccheck build test
 	@printf 'chore(ci): validate gates locally' > /tmp/dcron-commitmsg.txt
 	lefthook run commit-msg /tmp/dcron-commitmsg.txt
 	@rm -f /tmp/dcron-commitmsg.txt

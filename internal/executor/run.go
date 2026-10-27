@@ -86,6 +86,14 @@ func sleep(ctx context.Context, d time.Duration) {
 	}
 }
 
+// runAttempt executes fn on a dedicated goroutine protected by a deferred recover.
+// It reports outcomes promptly if fn completes, panics, or if ctx is canceled/times out.
+//
+// Limitation: Go runtime mechanics do not support forcibly terminating a running goroutine.
+// If a job ignores context cancellation (e.g. busy loops or un-cancellable blocking calls),
+// its goroutine will continue executing until it terminates naturally or the process exits.
+// However, runAttempt unblocks immediately upon context cancellation or timeout so that
+// the scheduler does not hang.
 func runAttempt(ctx context.Context, name string, fn Func) (Outcome, []byte, error) {
 	ch := make(chan attemptResult, 1)
 	go func() {
@@ -101,11 +109,24 @@ func runAttempt(ctx context.Context, name string, fn Func) (Outcome, []byte, err
 		ch <- attemptResult{err: fn(ctx)}
 	}()
 
-	res := <-ch
-	if res.panic {
-		return OutcomePanicked, res.stack, &PanicError{Job: name, Value: res.val, Stack: res.stack}
+	select {
+	case res := <-ch:
+		if res.panic {
+			return OutcomePanicked, res.stack, &PanicError{Job: name, Value: res.val, Stack: res.stack}
+		}
+		return classify(res.err), nil, res.err
+	case <-ctx.Done():
+		// Check if the job finished just as the context expired to preserve its outcome/error.
+		select {
+		case res := <-ch:
+			if res.panic {
+				return OutcomePanicked, res.stack, &PanicError{Job: name, Value: res.val, Stack: res.stack}
+			}
+			return classify(res.err), nil, res.err
+		default:
+			return classify(ctx.Err()), nil, ctx.Err()
+		}
 	}
-	return classify(res.err), nil, res.err
 }
 
 func classify(err error) Outcome {

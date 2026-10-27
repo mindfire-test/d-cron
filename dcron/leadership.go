@@ -69,6 +69,9 @@ type JobStatus struct {
 	Paused       bool
 }
 
+// JobInfo is an alias for JobStatus representing the point-in-time state of a registered job.
+type JobInfo = JobStatus
+
 // Jobs returns a point-in-time snapshot of every registered job's status.
 func (s *Scheduler) Jobs() []JobStatus {
 	s.mu.Lock()

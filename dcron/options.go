@@ -24,7 +24,7 @@ func newInstanceID() string {
 //
 // Options are applied in order on top of the defaults and are passed to New.
 // All options have working defaults except the session-stability assertion,
-// which defaults to an automatic database connection probe.
+// which requires an explicit assertion via WithSessionStableConnection or a dedicated lock connection.
 type Option func(*options)
 
 type options struct {
@@ -119,9 +119,13 @@ func WithDrainTimeout(d time.Duration) Option {
 }
 
 // WithLogger sets the logger used for scheduler diagnostics. The default is
-// slog.Default().
+// slog.Default(). Passing nil resets the logger to slog.Default().
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) {
+		if l == nil {
+			o.logger = slog.Default()
+			return
+		}
 		o.logger = l
 	}
 }

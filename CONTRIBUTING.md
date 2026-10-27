@@ -168,10 +168,11 @@ Feature requests are welcome! Please use the [feature request template](.github/
    go test -v -race ./...
    ```
 
-5. Verify code formatting and linting:
+5. Verify code formatting, linting, and godoc coverage:
    ```bash
    gofumpt -w .
    golangci-lint run
+   go run ./internal/tools/godoccheck
    ```
 
 6. Commit your changes using Conventional Commits:
@@ -193,10 +194,24 @@ Feature requests are welcome! Please use the [feature request template](.github/
 
 1. Ensure the PR description clearly explains the changes and rationale.
 2. Link any related issues (e.g., "Closes #42").
-3. All automated CI checks must pass (`lint`, `cross-build`, `unit-tests`, `integration-tests`).
+3. All automated CI checks must pass (`lint`, `cross-build`, `unit-tests`, `integration-tests`, `vulnerability-scan`, `codeql`).
 4. Code must follow project standards and pass `gofumpt` formatting.
 5. All exported symbols must include descriptive godoc comments verified by `godoccheck`.
 6. At least one maintainer must review and approve the PR before merging.
+
+### Branch Protection & Governance Rules
+
+To protect the integrity of the default branch (`main`), repository settings enforce:
+- **Mandatory Pull Requests**: Direct pushes to `main` are disabled; all changes must merge via pull request.
+- **Independent Peer Review**: At least 1 review approval from a project maintainer is required before merging. Self-approval is disallowed.
+- **Required Status Checks**: The following automated CI checks must pass before merging:
+  - `Lint & Format Check` (`gofumpt`, `golangci-lint`, and `godoccheck`)
+  - `Cross-Compilation Matrix` (`linux/darwin/windows` across `amd64/arm64`)
+  - `Unit Tests` (with race detector enabled)
+  - `Postgres Integration Matrix` (PostgreSQL 14, 15, 16)
+  - `Vulnerability Scan` (`govulncheck`)
+  - `CodeQL Analysis` (SAST security analysis)
+- **Linear History**: Branches must be up to date before merging; force pushes and branch deletions are disabled.
 
 ### PR Title Convention
 

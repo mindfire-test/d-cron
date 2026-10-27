@@ -20,8 +20,10 @@ import (
 )
 
 type schedBackend struct {
-	mu   sync.Mutex
-	held bool
+	mu       sync.Mutex
+	held     bool
+	tryErr   error
+	holdsErr error
 }
 
 func newSchedBackend() *schedBackend { return &schedBackend{} }
@@ -31,6 +33,9 @@ func (b *schedBackend) TryLock(ctx context.Context, _ int64) (bool, int, error) 
 	defer b.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return false, 0, err
+	}
+	if b.tryErr != nil {
+		return false, 0, b.tryErr
 	}
 	if b.held {
 		return false, 0, nil
@@ -44,6 +49,9 @@ func (b *schedBackend) HoldsLock(ctx context.Context, _ int64) (bool, error) {
 	defer b.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return false, err
+	}
+	if b.holdsErr != nil {
+		return false, b.holdsErr
 	}
 	return b.held, nil
 }

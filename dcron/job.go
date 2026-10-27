@@ -12,7 +12,8 @@ import (
 // JobFunc is the signature of a job's execution function.
 type JobFunc func(ctx context.Context) error
 
-// Job is a registered, schedulable unit of work.
+// OverlapPolicy governs concurrency when a scheduled run is due while a previous
+// execution of the same job is still running.
 type OverlapPolicy int
 
 const (
@@ -29,6 +30,7 @@ const (
 	MissedCatchUp
 )
 
+// Job is a registered, schedulable unit of work.
 type Job struct {
 	name          string
 	spec          string

@@ -29,15 +29,16 @@ import (
 type promRecorder struct {
 	instance string
 
-	leader     *prometheus.GaugeVec
-	trans      *prometheus.CounterVec
-	started    prometheus.Counter
-	executions *prometheus.CounterVec
-	duration   *prometheus.HistogramVec
-	lastOK     *prometheus.GaugeVec
-	running    *prometheus.GaugeVec
-	fenced     prometheus.Counter
-	missed     *prometheus.CounterVec
+	leader         *prometheus.GaugeVec
+	trans          *prometheus.CounterVec
+	started        prometheus.Counter
+	executions     *prometheus.CounterVec
+	duration       *prometheus.HistogramVec
+	lastOK         *prometheus.GaugeVec
+	running        *prometheus.GaugeVec
+	fenced         prometheus.Counter
+	missed         *prometheus.CounterVec
+	recordFailures *prometheus.CounterVec
 }
 
 // NewPromRecorder registers every documented metric on reg. Call once at boot.
@@ -77,9 +78,13 @@ func NewPromRecorder(reg prometheus.Registerer, instance string) metrics.Recorde
 			Name: metrics.KeyMissedRuns,
 			Help: "Fire times skipped because no replica could run them in time.",
 		}, []string{"job"}),
+		recordFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: metrics.KeyRecordFailures,
+			Help: "Database history persistence failures.",
+		}, []string{"job"}),
 	}
 	reg.MustRegister(r.leader, r.trans, r.executions, r.duration,
-		r.lastOK, r.running, r.fenced, r.missed)
+		r.lastOK, r.running, r.fenced, r.missed, r.recordFailures)
 	return r
 }
 
@@ -111,6 +116,8 @@ func (r *promRecorder) JobFinished(job string, outcome metrics.Outcome, d time.D
 func (r *promRecorder) FencedWrite() { r.fenced.Inc() }
 
 func (r *promRecorder) MissedRun(job string) { r.missed.WithLabelValues(job).Inc() }
+
+func (r *promRecorder) RecordFailure(job string) { r.recordFailures.WithLabelValues(job).Inc() }
 
 func main() {
 	reg := prometheus.NewRegistry()

@@ -31,8 +31,25 @@ func NewGroup() *Group {
 func (g *Group) Go(ctx context.Context, name string, fn Func, retry Retry, log *slog.Logger, onComplete ...func(Result)) {
 	g.wg.Add(1)
 	go func() {
-		defer g.wg.Done()
-		res := Run(ctx, name, fn, retry)
+		fnCalled := make(chan struct{})
+		fnDone := make(chan struct{})
+		var calledOnce, doneOnce sync.Once
+
+		wrappedFn := func(ctx context.Context) error {
+			calledOnce.Do(func() { close(fnCalled) })
+			defer doneOnce.Do(func() { close(fnDone) })
+			return fn(ctx)
+		}
+		defer func() {
+			select {
+			case <-fnCalled:
+				<-fnDone
+			default:
+			}
+			g.wg.Done()
+		}()
+
+		res := Run(ctx, name, wrappedFn, retry)
 		if res.Outcome != OutcomeOK && log != nil {
 			attrs := []any{
 				"job", name,
