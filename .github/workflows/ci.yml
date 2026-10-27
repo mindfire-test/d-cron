@@ -28,6 +28,14 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+      - name: Verify zero external dependencies in root go.mod
+        run: |
+          if grep -E '^\s*require\b' go.mod; then
+            echo "ERROR: Root module must remain dependency-free. Found require in go.mod."
+            exit 1
+          fi
+          echo "SUCCESS: Root go.mod has zero external dependencies."
+
       - name: Check formatting (gofumpt)
         run: |
           go install mvdan.cc/gofumpt@v0.7.0

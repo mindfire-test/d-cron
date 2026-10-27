@@ -128,11 +128,12 @@ func (w *WebhookHook) Fire(ctx context.Context, res Result) error {
 		Time:       time.Now().UTC().Format(time.RFC3339),
 	}
 	if res.Error != nil {
-		if w.IncludeRawError {
+		switch {
+		case w.IncludeRawError:
 			body.Error = res.Error.Error()
-		} else if w.RedactFunc != nil {
+		case w.RedactFunc != nil:
 			body.Error = w.RedactFunc(res.Error)
-		} else {
+		default:
 			body.Error = RedactError(res.Error)
 		}
 	}

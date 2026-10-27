@@ -235,6 +235,11 @@ func WithDBTimeout(d time.Duration) Option {
 	}
 }
 
+// WithOpTimeout is an alias for WithDBTimeout, setting the per-operation timeout for internal database queries.
+func WithOpTimeout(d time.Duration) Option {
+	return WithDBTimeout(d)
+}
+
 // WithLeaderForwardURL sets the URL to which a standby replica will forward administrative mutation requests.
 func WithLeaderForwardURL(url string) Option {
 	return func(o *options) {

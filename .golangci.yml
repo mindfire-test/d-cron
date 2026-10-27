@@ -26,9 +26,14 @@ linters:
     - staticcheck # broad static-analysis suite.
     - typecheck # type errors via go list.
     - unconvert # unnecessary type conversions.
+    - unparam # unused function parameters.
     - unused # unused declarations/fields.
+    - gocritic # extensive diagnostic and style checks.
+    - dupl # code clone detection.
 
 linters-settings:
+  dupl:
+    threshold: 150
   revive:
     confidence: 0.8
 

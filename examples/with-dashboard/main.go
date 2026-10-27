@@ -10,11 +10,13 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -123,24 +125,35 @@ func main() {
 		log.Fatalf("Start: %v", err)
 	}
 
+	// Security: Require a bearer token for administrative and dashboard endpoints by default.
+	// In production, configure DCRON_AUTH_TOKEN in the environment.
+	authToken := os.Getenv("DCRON_AUTH_TOKEN")
+	if authToken == "" {
+		authToken = "dev-secret-token" // Safe default for local testing
+		log.Println("WARNING: DCRON_AUTH_TOKEN not set; defaulting to 'dev-secret-token' for local demo")
+	}
+
+	dashboardHandler := ui.Handler(
+		func() ui.Overview {
+			return ui.Overview{
+				Namespace:      sched.Namespace(),
+				InstanceID:     sched.InstanceID(),
+				LockKey:        sched.Key(),
+				Leadership:     sched.Leadership().String(),
+				HistoryEnabled: true,
+				Schema:         "dcron",
+				Jobs:           jobRows(sched),
+			}
+		},
+		func(ctx context.Context) []ui.HistoryRow {
+			return recentHistory(ctx, db, sched.Namespace(), 20)
+		},
+	)
+
 	mux := http.NewServeMux()
-	mux.Handle("/internal/dcron", http.StripPrefix("/internal/dcron",
-		ui.Handler(
-			func() ui.Overview {
-				return ui.Overview{
-					Namespace:      sched.Namespace(),
-					InstanceID:     sched.InstanceID(),
-					LockKey:        sched.Key(),
-					Leadership:     sched.Leadership().String(),
-					HistoryEnabled: true,
-					Schema:         "dcron",
-					Jobs:           jobRows(sched),
-				}
-			},
-			func(ctx context.Context) []ui.HistoryRow {
-				return recentHistory(ctx, db, sched.Namespace(), 20)
-			},
-		)))
+	mux.Handle("/internal/dcron", requireBearerToken(authToken, http.StripPrefix("/internal/dcron", dashboardHandler)))
+	mux.Handle("/internal/dcron/api/", requireBearerToken(authToken, http.StripPrefix("/internal/dcron/api", dcron.AdminHandler(dcron.RequireBearerToken(authToken), sched))))
+
 	// Bind to localhost only by default so unauthenticated internal management UI
 	// is not exposed across external or container network interfaces.
 	srv := &http.Server{
@@ -167,4 +180,22 @@ func main() {
 	shutdown, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()
 	_ = srv.Shutdown(shutdown)
+}
+
+// requireBearerToken protects HTTP handlers by verifying an Authorization: Bearer <token> header.
+func requireBearerToken(expectedToken string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="dcron-dashboard"`)
+			http.Error(w, "unauthorized: bearer token required", http.StatusUnauthorized)
+			return
+		}
+		token := strings.TrimPrefix(auth, "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) != 1 {
+			http.Error(w, "forbidden: invalid token", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

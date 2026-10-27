@@ -39,6 +39,7 @@ type promRecorder struct {
 	fenced         prometheus.Counter
 	missed         *prometheus.CounterVec
 	recordFailures *prometheus.CounterVec
+	backendErrors  *prometheus.CounterVec
 }
 
 // NewPromRecorder registers every documented metric on reg. Call once at boot.
@@ -82,9 +83,13 @@ func NewPromRecorder(reg prometheus.Registerer, instance string) metrics.Recorde
 			Name: metrics.KeyRecordFailures,
 			Help: "Database history persistence failures.",
 		}, []string{"job"}),
+		backendErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: metrics.KeyBackendErrors,
+			Help: "Coordination backend and database communication errors.",
+		}, []string{"op"}),
 	}
 	reg.MustRegister(r.leader, r.trans, r.executions, r.duration,
-		r.lastOK, r.running, r.fenced, r.missed, r.recordFailures)
+		r.lastOK, r.running, r.fenced, r.missed, r.recordFailures, r.backendErrors)
 	return r
 }
 
@@ -118,6 +123,10 @@ func (r *promRecorder) FencedWrite() { r.fenced.Inc() }
 func (r *promRecorder) MissedRun(job string) { r.missed.WithLabelValues(job).Inc() }
 
 func (r *promRecorder) RecordFailure(job string) { r.recordFailures.WithLabelValues(job).Inc() }
+
+func (r *promRecorder) BackendError(operation string) {
+	r.backendErrors.WithLabelValues(operation).Inc()
+}
 
 func main() {
 	reg := prometheus.NewRegistry()
