@@ -82,7 +82,10 @@ func main() {
 		log.Fatalf("Failed to initialize d-cron: %v", err)
 	}
 
-	// Register an in-process Go job (cron spec syntax)
+	// Register an in-process Go job (cron spec syntax).
+	// By default, jobs execute with zero retries (fail-fast, safe for non-idempotent work).
+	// Use WithRetry(dcron.Retry{Attempts: 1}) to make non-idempotent safety explicit,
+	// or WithRetry(dcron.Retry{Attempts: 3}) for idempotent tasks requiring backoff.
 	err = scheduler.Add("daily-cleanup", "0 2 * * *", func(ctx context.Context) error {
 		slog.Info("Executing daily report cleanup",
 			slog.String("job", "daily-cleanup"),
@@ -90,7 +93,7 @@ func main() {
 			slog.String("idempotency_key", dcron.IdempotencyKey(ctx)),
 		)
 		return nil
-	})
+	}, dcron.WithRetry(dcron.Retry{Attempts: 1}))
 	if err != nil {
 		log.Fatalf("Failed to register job: %v", err)
 	}

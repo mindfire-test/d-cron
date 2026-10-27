@@ -306,8 +306,7 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 	return firstErr
 }
 
-// Pause prevents a registered job from being dispatched on future fire times.
-func (s *Scheduler) Pause(name string) error {
+func (s *Scheduler) setJobPauseState(name string, paused bool, opName string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started && s.Leadership() == LeadershipStandby {
@@ -323,49 +322,28 @@ func (s *Scheduler) Pause(name string) error {
 		err := s.store.SaveJobState(ctx, store.JobState{
 			Namespace: s.opts.namespace,
 			JobName:   name,
-			Paused:    true,
+			Paused:    paused,
 			Removed:   false,
 		})
 		if err != nil {
-			return fmt.Errorf("dcron: pause: %w", err)
+			return fmt.Errorf("dcron: %s: %w", opName, err)
 		}
 	}
 	j.statusMu.Lock()
-	j.paused = true
+	j.paused = paused
 	j.statusMu.Unlock()
-	s.opts.logger.Info("dcron: job paused", "job", name)
+	s.opts.logger.Info(fmt.Sprintf("dcron: job %sd", opName), "job", name)
 	return nil
+}
+
+// Pause prevents a registered job from being dispatched on future fire times.
+func (s *Scheduler) Pause(name string) error {
+	return s.setJobPauseState(name, true, "pause")
 }
 
 // Resume re-enables a previously paused job.
 func (s *Scheduler) Resume(name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.started && s.Leadership() == LeadershipStandby {
-		return ErrNotLeader
-	}
-	j, ok := s.jobs[name]
-	if !ok {
-		return &JobNotFoundError{Name: name}
-	}
-	if s.store != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), s.opts.dbTimeout)
-		defer cancel()
-		err := s.store.SaveJobState(ctx, store.JobState{
-			Namespace: s.opts.namespace,
-			JobName:   name,
-			Paused:    false,
-			Removed:   false,
-		})
-		if err != nil {
-			return fmt.Errorf("dcron: resume: %w", err)
-		}
-	}
-	j.statusMu.Lock()
-	j.paused = false
-	j.statusMu.Unlock()
-	s.opts.logger.Info("dcron: job resumed", "job", name)
-	return nil
+	return s.setJobPauseState(name, false, "resume")
 }
 
 // Remove unregisters a job at runtime.

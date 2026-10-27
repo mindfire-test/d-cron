@@ -26,6 +26,8 @@ const (
 	KeyMissedRuns        = "dcron_missed_runs_total"
 	// KeyRecordFailures tracks failed database writes to execution history.
 	KeyRecordFailures = "dcron_record_failures_total"
+	// KeyBackendErrors tracks failed database and coordination backend calls.
+	KeyBackendErrors = "dcron_backend_errors_total"
 )
 
 // Outcome is the terminal result of one logical execution. Its String() maps
@@ -92,6 +94,13 @@ type HistoryRecorder interface {
 	RecordFailure(job string)
 }
 
+// BackendErrorRecorder is an optional extension that a Recorder may implement
+// to observe communication failures with the database or leadership backend.
+type BackendErrorRecorder interface {
+	// BackendError records an error communicating with the coordination backend.
+	BackendError(operation string)
+}
+
 // Noop is the default Recorder that discards everything; it keeps callers
 // safe when no metrics sink is configured.
 type Noop struct{}
@@ -117,7 +126,11 @@ func (Noop) MissedRun(_ string) {}
 // RecordFailure implements HistoryRecorder.
 func (Noop) RecordFailure(_ string) {}
 
+// BackendError implements BackendErrorRecorder.
+func (Noop) BackendError(_ string) {}
+
 var (
-	_ Recorder        = (*Noop)(nil)
-	_ HistoryRecorder = (*Noop)(nil)
+	_ Recorder             = (*Noop)(nil)
+	_ HistoryRecorder      = (*Noop)(nil)
+	_ BackendErrorRecorder = (*Noop)(nil)
 )

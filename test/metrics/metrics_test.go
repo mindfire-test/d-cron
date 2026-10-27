@@ -85,8 +85,12 @@ func TestNoopRecorder(t *testing.T) {
 	n.FencedWrite()
 	n.MissedRun("job-1")
 	n.RecordFailure("job-1")
+	n.BackendError("poll")
 
 	if metrics.KeyRecordFailures != "dcron_record_failures_total" {
 		t.Errorf("unexpected KeyRecordFailures: %s", metrics.KeyRecordFailures)
+	}
+	if metrics.KeyBackendErrors != "dcron_backend_errors_total" {
+		t.Errorf("unexpected KeyBackendErrors: %s", metrics.KeyBackendErrors)
 	}
 }

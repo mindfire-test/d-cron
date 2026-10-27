@@ -43,7 +43,7 @@ func advanceDate(cur, next time.Time, step time.Duration) time.Time {
 	return cur.Add(step)
 }
 
-/* Next implements Schedule by scanning field-by-field. */
+// Next implements Schedule by scanning field-by-field.
 func (c CronSchedule) Next(t time.Time) time.Time {
 	step := time.Minute
 	var cur time.Time

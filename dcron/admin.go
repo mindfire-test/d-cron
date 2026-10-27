@@ -140,8 +140,7 @@ func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 		w.WriteHeader(http.StatusCreated)
 	})
 
-	// POST /jobs/{name}/pause
-	mux.HandleFunc("POST /jobs/{name}/pause", func(w http.ResponseWriter, r *http.Request) {
+	handleMutation := func(w http.ResponseWriter, r *http.Request, suffix string, mutate func(string) error) {
 		if auth != nil && !auth(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
@@ -154,8 +153,8 @@ func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 			http.Error(w, ErrNotLeader.Error(), http.StatusConflict)
 			return
 		}
-		name := jobNameFromPath(r.URL.Path, "/pause")
-		if err := s.Pause(name); err != nil {
+		name := jobNameFromPath(r.URL.Path, suffix)
+		if err := mutate(name); err != nil {
 			if errors.Is(err, ErrNotLeader) {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
@@ -168,36 +167,16 @@ func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+
+	// POST /jobs/{name}/pause
+	mux.HandleFunc("POST /jobs/{name}/pause", func(w http.ResponseWriter, r *http.Request) {
+		handleMutation(w, r, "/pause", s.Pause)
 	})
 
 	// POST /jobs/{name}/resume
 	mux.HandleFunc("POST /jobs/{name}/resume", func(w http.ResponseWriter, r *http.Request) {
-		if auth != nil && !auth(r) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		if s.started && s.Leadership() == LeadershipStandby {
-			if s.opts.leaderForwardURL != "" {
-				forwardToLeader(w, r, s.opts.leaderForwardURL)
-				return
-			}
-			http.Error(w, ErrNotLeader.Error(), http.StatusConflict)
-			return
-		}
-		name := jobNameFromPath(r.URL.Path, "/resume")
-		if err := s.Resume(name); err != nil {
-			if errors.Is(err, ErrNotLeader) {
-				http.Error(w, err.Error(), http.StatusConflict)
-				return
-			}
-			if errors.Is(err, ErrJobNotFound) {
-				http.Error(w, err.Error(), http.StatusNotFound)
-				return
-			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+		handleMutation(w, r, "/resume", s.Resume)
 	})
 
 	// DELETE /jobs/{name}

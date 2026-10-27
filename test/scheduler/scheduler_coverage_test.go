@@ -107,7 +107,7 @@ func TestScheduler_OverlapQueue_QueuesNextRun(t *testing.T) {
 	close(unblockFirst)
 
 	// Wait for the queued run to execute sequentially
-	waitFor(t, func() bool { return sequentialFired.Load() }, "queued run to execute")
+	waitFor(t, sequentialFired.Load, "queued run to execute")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -446,4 +446,15 @@ func TestScheduler_StandbyPollError_ThrottlingAndRecovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = s.Stop(ctx)
+}
+
+// TestScheduler_WithOpTimeout verifies that WithOpTimeout sets the database timeout correctly.
+func TestScheduler_WithOpTimeout(t *testing.T) {
+	t.Parallel()
+
+	b := newSchedBackend()
+	s := testScheduler(b, dcron.WithOpTimeout(10*time.Second))
+	if s == nil {
+		t.Fatal("expected non-nil scheduler with WithOpTimeout")
+	}
 }

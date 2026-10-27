@@ -1,6 +1,6 @@
 // Command kubernetes demonstrates deploying d-cron inside a 5-replica
-// Kubernetes Deployment: exactly-once firing under normal
-// operation, graceful leader failover, and split-brain containment.
+// Kubernetes Deployment: at most once per tick under normal operation
+// (at least once with catch-up), graceful leader failover, and split-brain containment.
 //
 // Every replica runs this same binary. Exactly one becomes leader; the other
 // four stand by on a jittered poll. /healthz exposes dcron.HealthCheck as a

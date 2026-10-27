@@ -36,6 +36,9 @@ func (s *Scheduler) runLoop() {
 
 		switch {
 		case err != nil && !errors.Is(err, context.Canceled):
+			if ber, ok := s.opts.rec.(metrics.BackendErrorRecorder); ok {
+				ber.BackendError("poll")
+			}
 			if lastPollErrTime.IsZero() || time.Since(lastPollErrTime) >= 30*time.Second {
 				if lastPollErrCount > 0 {
 					s.opts.logger.Error("dcron: leadership poll failed", "err", err, "suppressed_errors", lastPollErrCount)
