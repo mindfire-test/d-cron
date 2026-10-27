@@ -226,3 +226,66 @@ func TestRunPanicNamesJob(t *testing.T) {
 		t.Errorf("Error message = %q; want it to name the job", res.Error.Error())
 	}
 }
+
+// TestRunPromptTimeoutWhenJobIgnoresContext asserts that runAttempt returns promptly
+// when a job ignores context cancellation/timeout, preventing scheduler worker hangs.
+func TestRunPromptTimeoutWhenJobIgnoresContext(t *testing.T) {
+	t.Parallel()
+
+	unblockJob := make(chan struct{})
+	defer close(unblockJob)
+
+	// fn deliberately ignores ctx and blocks on unblockJob
+	fn := func(ctx context.Context) error {
+		<-unblockJob
+		return nil
+	}
+
+	start := time.Now()
+	res := executor.Run(context.Background(), "uncooperative", fn, executor.Retry{Attempts: 1, Timeout: 30 * time.Millisecond})
+	elapsed := time.Since(start)
+
+	if res.Outcome != executor.OutcomeTimedOut {
+		t.Fatalf("Outcome = %v; want TimedOut", res.Outcome)
+	}
+	var te *executor.TimeoutError
+	if !errors.As(res.Error, &te) {
+		t.Fatalf("Error = %T; want *executor.TimeoutError", res.Error)
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("Run took %v; expected prompt return near 30ms timeout", elapsed)
+	}
+}
+
+// TestRunLateJobCompletionAfterTimeout asserts that when a job finishes after
+// runAttempt timed out, the buffered channel receive does not block or leak.
+func TestRunLateJobCompletionAfterTimeout(t *testing.T) {
+	t.Parallel()
+
+	jobCompleted := make(chan struct{})
+
+	fn := func(ctx context.Context) error {
+		time.Sleep(60 * time.Millisecond)
+		close(jobCompleted)
+		return nil
+	}
+
+	start := time.Now()
+	res := executor.Run(context.Background(), "late-job", fn, executor.Retry{Attempts: 1, Timeout: 20 * time.Millisecond})
+	elapsed := time.Since(start)
+
+	if res.Outcome != executor.OutcomeTimedOut {
+		t.Fatalf("Outcome = %v; want TimedOut", res.Outcome)
+	}
+	if elapsed > 50*time.Millisecond {
+		t.Fatalf("Run took %v; expected return before job completion", elapsed)
+	}
+
+	// Verify the job goroutine eventually finishes cleanly without deadlock
+	select {
+	case <-jobCompleted:
+		// Completed cleanly
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("late job did not complete within expected time")
+	}
+}

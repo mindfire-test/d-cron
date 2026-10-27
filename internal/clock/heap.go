@@ -50,3 +50,22 @@ func (q *Queue) NextDue(now time.Time) []*Job {
 // Peek returns the earliest-due job without removing it; it panics on an empty
 // queue like the other slice-indexing paths.
 func (q *Queue) Peek() *Job { return (*q)[0] }
+
+// Realign re-computes the next fire time for every job in the queue using now and the job's schedule,
+// discarding jobs whose schedule returns a zero time (e.g. expired one-time jobs).
+// The heap invariant is restored via heap.Init.
+func (q *Queue) Realign(now time.Time) {
+	filtered := (*q)[:0]
+	for _, j := range *q {
+		if j.Sched == nil {
+			continue
+		}
+		next := j.Sched.Next(now)
+		if !next.IsZero() {
+			j.FireAt = next
+			filtered = append(filtered, j)
+		}
+	}
+	*q = filtered
+	heap.Init(q)
+}

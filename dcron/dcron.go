@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,6 +56,9 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 	cfg := defaultOptions()
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+	if cfg.logger == nil {
+		cfg.logger = slog.Default()
 	}
 	if !cfg.sessionStable && cfg.lockConn == nil {
 		return nil, &SessionStabilityError{}

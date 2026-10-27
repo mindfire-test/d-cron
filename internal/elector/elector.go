@@ -98,11 +98,12 @@ type Elector struct {
 	log          *slog.Logger
 	probeTimeout time.Duration
 
-	mu    sync.Mutex
-	state State
-	epoch int64
-	pid   int
-	subs  []chan<- Transition
+	acquireMu sync.Mutex // serializes polling / probing operations across calls
+	mu        sync.Mutex // protects mutable state below
+	state     State
+	epoch     int64
+	pid       int
+	subs      []chan<- Transition
 }
 
 // New returns an Elector over backend for namespace.
@@ -191,18 +192,27 @@ func (e *Elector) emit(from, to State, reason string) {
 }
 
 // Acquire performs the leadership-polling step.
+// It avoids holding e.mu across potentially slow backend queries and backoff waits,
+// while serializing Acquire callers using e.acquireMu to maintain deterministic election transitions.
 func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.acquireMu.Lock()
+	defer e.acquireMu.Unlock()
 
 	if err := ctx.Err(); err != nil {
-		return false, e.epoch, err
+		e.mu.Lock()
+		ep := e.epoch
+		e.mu.Unlock()
+		return false, ep, err
 	}
 
+	e.mu.Lock()
+	curState := e.state
+	curEpoch := e.epoch
 	probeTimeout := e.probeTimeout
 	if probeTimeout <= 0 {
 		probeTimeout = 5 * time.Second
 	}
+	e.mu.Unlock()
 
 	makeProbeCtx := func() (context.Context, context.CancelFunc) {
 		if _, hasDeadline := ctx.Deadline(); hasDeadline {
@@ -211,15 +221,28 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 		return context.WithTimeout(ctx, probeTimeout)
 	}
 
-	switch e.state {
+	switch curState {
 	case StateLeader:
 		const maxProbeAttempts = 3
 		var holds bool
 		var probeErr error
 		for attempt := 0; attempt < maxProbeAttempts; attempt++ {
 			if ctx.Err() != nil {
-				return false, e.epoch, ctx.Err()
+				e.mu.Lock()
+				ep := e.epoch
+				e.mu.Unlock()
+				return false, ep, ctx.Err()
 			}
+
+			// Verify state has not transitioned before making external backend call
+			e.mu.Lock()
+			if e.state != StateLeader || e.epoch != curEpoch {
+				ep := e.epoch
+				e.mu.Unlock()
+				return false, ep, nil
+			}
+			e.mu.Unlock()
+
 			pCtx, cancel := makeProbeCtx()
 			holds, probeErr = e.backend.HoldsLock(pCtx, e.key)
 			cancel()
@@ -228,7 +251,10 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 				break
 			}
 			if errors.Is(probeErr, context.Canceled) {
-				return false, e.epoch, probeErr
+				e.mu.Lock()
+				ep := e.epoch
+				e.mu.Unlock()
+				return false, ep, probeErr
 			}
 
 			// Transient database timeout or probe error:
@@ -238,10 +264,21 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 					"attempt", attempt+1, "err", probeErr)
 				select {
 				case <-ctx.Done():
-					return false, e.epoch, ctx.Err()
+					e.mu.Lock()
+					ep := e.epoch
+					e.mu.Unlock()
+					return false, ep, ctx.Err()
 				case <-time.After(time.Duration(20*(attempt+1)) * time.Millisecond):
 				}
 			}
+		}
+
+		e.mu.Lock()
+		defer e.mu.Unlock()
+
+		// Verify that leadership state or epoch did not transition while probing outside e.mu
+		if e.state != StateLeader || e.epoch != curEpoch {
+			return false, e.epoch, nil
 		}
 
 		if probeErr != nil {
@@ -256,12 +293,25 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 		return false, e.epoch, nil
 
 	case StateDemoting:
-		return false, e.epoch, nil
+		return false, curEpoch, nil
 
 	default:
 		pCtx, cancel := makeProbeCtx()
 		acquired, pid, err := e.backend.TryLock(pCtx, e.key)
 		cancel()
+
+		e.mu.Lock()
+		defer e.mu.Unlock()
+
+		// Check if state changed while probing outside e.mu (e.g. Release or Close occurred)
+		if e.state != curState || e.epoch != curEpoch {
+			if acquired {
+				// Prevent orphaned lock holds if elector demoted or shut down during backend query
+				_, _ = e.backend.Release(context.Background(), e.key)
+			}
+			return false, e.epoch, nil
+		}
+
 		if err != nil {
 			return false, e.epoch, err
 		}
@@ -282,6 +332,7 @@ func (e *Elector) Acquire(ctx context.Context) (promoted bool, epoch int64, err 
 }
 
 // demote transitions LEADER -> DEMOTING and emits a transition event.
+// Caller must hold e.mu.
 func (e *Elector) demote(reason string) {
 	if e.state != StateLeader {
 		return
@@ -296,9 +347,11 @@ func (e *Elector) demote(reason string) {
 }
 
 // FinalizeDemotion completes a LEADER -> DEMOTING transition by settling to
-// STANDBY, emitting DEMOTING -> STANDBY. Safe to call from the scheduler's
-// demotion path without first checking state. Must hold mu.
+// STANDBY, emitting DEMOTING -> STANDBY. Safe to call concurrently from the
+// scheduler's demotion path without first checking state. Protected by e.mu.
 func (e *Elector) FinalizeDemotion() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.state != StateDemoting {
 		return
 	}

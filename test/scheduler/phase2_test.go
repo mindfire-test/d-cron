@@ -16,13 +16,14 @@ import (
 )
 
 type recordingRecorder struct {
-	leaders     atomic.Int64
-	started     atomic.Int64
-	finished    atomic.Int64
-	missed      atomic.Int64
-	lastJob     atomic.Value
-	lastOutcome atomic.Value
-	lastDone    atomic.Bool
+	leaders        atomic.Int64
+	started        atomic.Int64
+	finished       atomic.Int64
+	missed         atomic.Int64
+	recordFailures atomic.Int64
+	lastJob        atomic.Value
+	lastOutcome    atomic.Value
+	lastDone       atomic.Bool
 }
 
 func newRecordingRecorder() *recordingRecorder {
@@ -49,8 +50,9 @@ func (r *recordingRecorder) JobFinished(job string, out metrics.Outcome, _ time.
 	r.lastDone.Store(true)
 }
 
-func (r *recordingRecorder) FencedWrite()       {}
-func (r *recordingRecorder) MissedRun(_ string) { r.missed.Add(1) }
+func (r *recordingRecorder) FencedWrite()           {}
+func (r *recordingRecorder) MissedRun(_ string)     { r.missed.Add(1) }
+func (r *recordingRecorder) RecordFailure(_ string) { r.recordFailures.Add(1) }
 
 func waitFor(t *testing.T, cond func() bool, what string) {
 	t.Helper()

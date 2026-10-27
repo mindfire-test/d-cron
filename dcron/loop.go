@@ -26,6 +26,8 @@ func (s *Scheduler) runLoop() {
 	timer := time.NewTimer(s.jitteredPoll())
 	defer timer.Stop()
 	wasLeader := false
+	var lastPollErrTime time.Time
+	var lastPollErrCount int
 
 	for {
 		now := time.Now().In(s.opts.location)
@@ -34,14 +36,32 @@ func (s *Scheduler) runLoop() {
 
 		switch {
 		case err != nil && !errors.Is(err, context.Canceled):
-			s.opts.logger.Error("dcron: leadership poll failed", "err", err)
+			if lastPollErrTime.IsZero() || time.Since(lastPollErrTime) >= 30*time.Second {
+				if lastPollErrCount > 0 {
+					s.opts.logger.Error("dcron: leadership poll failed", "err", err, "suppressed_errors", lastPollErrCount)
+				} else {
+					s.opts.logger.Error("dcron: leadership poll failed", "err", err)
+				}
+				lastPollErrTime = now
+				lastPollErrCount = 0
+			} else {
+				lastPollErrCount++
+			}
 			if wasLeader {
 				s.onDemotion()
 			}
-		case isLeader && !wasLeader:
-			s.onPromotion(electorEpoch)
-		case !isLeader && wasLeader:
-			s.onDemotion()
+		default:
+			if lastPollErrCount > 0 {
+				s.opts.logger.Info("dcron: leadership poll recovered", "suppressed_errors", lastPollErrCount)
+				lastPollErrCount = 0
+				lastPollErrTime = time.Time{}
+			}
+			switch {
+			case isLeader && !wasLeader:
+				s.onPromotion(electorEpoch)
+			case !isLeader && wasLeader:
+				s.onDemotion()
+			}
 		}
 		wasLeader = isLeader
 
@@ -63,6 +83,10 @@ func (s *Scheduler) runLoop() {
 					}
 					s.opts.logger.Info("dcron: leader epoch incremented on retry", "epoch", dbEpoch)
 					s.reconcileJobStates(dbEpoch)
+					s.catchUpMissedRuns(dbEpoch)
+					s.mu.Lock()
+					s.realignQueueLocked(time.Now().In(s.opts.location))
+					s.mu.Unlock()
 				}
 			}
 			if s.store == nil || epoch > 0 {
@@ -112,6 +136,10 @@ func (s *Scheduler) onPromotion(electorEpoch int64) {
 		s.reconcileJobStates(epoch)
 		s.catchUpMissedRuns(epoch)
 	}
+
+	s.mu.Lock()
+	s.realignQueueLocked(time.Now().In(s.opts.location))
+	s.mu.Unlock()
 }
 
 func (s *Scheduler) catchUpMissedRuns(epoch int64) {
@@ -257,6 +285,26 @@ func (s *Scheduler) pruneHistory(now time.Time) {
 	}()
 }
 
+// realignQueueLocked re-computes pending fire times for in-memory jobs to now,
+// discarding stale standby heap entries for jobs with MissedSkip, while keeping
+// nextRun in sync. Must be called under s.mu.
+func (s *Scheduler) realignQueueLocked(now time.Time) {
+	if s.clk == nil {
+		s.clk = &clock.Queue{}
+	}
+	s.clk.Realign(now)
+	for _, cj := range *s.clk {
+		if j, ok := s.jobs[cj.Name]; ok {
+			j.nextRun = cj.FireAt
+		}
+	}
+	for _, j := range s.jobs {
+		if !j.nextRun.IsZero() && !j.nextRun.After(now) {
+			j.nextRun = time.Time{}
+		}
+	}
+}
+
 type dueJobFiring struct {
 	job    *Job
 	fireAt time.Time
@@ -275,8 +323,15 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 		if _, isSinceSuccess := j.sched.(clock.SinceSuccessSchedule); isSinceSuccess {
 			j.nextRun = time.Time{}
 		} else if next := j.sched.Next(cd.FireAt); !next.IsZero() {
-			j.nextRun = next
-			heap.Push(s.clk, &clock.Job{Name: j.name, FireAt: next, Sched: j.sched})
+			if j.missedPolicy == MissedSkip && next.Before(now) {
+				next = j.sched.Next(now)
+			}
+			if !next.IsZero() {
+				j.nextRun = next
+				heap.Push(s.clk, &clock.Job{Name: j.name, FireAt: next, Sched: j.sched})
+			} else {
+				j.nextRun = time.Time{}
+			}
 		} else {
 			j.nextRun = time.Time{}
 		}
@@ -308,7 +363,6 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 	}
 }
 
-/* the number of the functiona*/
 func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 	if s.termCtx == nil || s.termCtx.Err() != nil {
 		if !j.overlap {
@@ -350,6 +404,9 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 			cancel()
 			if err != nil {
 				s.opts.logger.Warn("dcron: history record failed", "job", j.name, "err", err)
+				if hr, ok := s.opts.rec.(metrics.HistoryRecorder); ok {
+					hr.RecordFailure(j.name)
+				}
 				return
 			}
 			rowID = row
@@ -359,6 +416,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 
 	j.statusMu.Lock()
 	j.running = true
+	j.lastRun = started
 	j.lastError = ""
 	j.statusMu.Unlock()
 	s.opts.rec.JobStarted(j.name)
@@ -370,6 +428,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 
 		j.statusMu.Lock()
 		j.running = false
+		j.lastRun = started
 		j.lastOutcome = res.Outcome.String()
 		j.lastDuration = res.Duration
 		if res.Error != nil {
@@ -393,6 +452,9 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 			cancel()
 			if err != nil {
 				s.opts.logger.Warn("dcron: history finish failed", "job", j.name, "err", err)
+				if hr, ok := s.opts.rec.(metrics.HistoryRecorder); ok {
+					hr.RecordFailure(j.name)
+				}
 			} else if rows == 0 {
 				s.opts.logger.Warn("dcron: fenced write detected on finish", "job", j.name)
 				s.opts.rec.FencedWrite()

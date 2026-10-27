@@ -24,6 +24,8 @@ const (
 	KeyJobsRunning       = "dcron_jobs_running"
 	KeyFencedWrites      = "dcron_fenced_writes_total"
 	KeyMissedRuns        = "dcron_missed_runs_total"
+	// KeyRecordFailures tracks failed database writes to execution history.
+	KeyRecordFailures = "dcron_record_failures_total"
 )
 
 // Outcome is the terminal result of one logical execution. Its String() maps
@@ -83,6 +85,13 @@ type Recorder interface {
 	MissedRun(job string)
 }
 
+// HistoryRecorder is an optional extension that a Recorder may implement
+// to observe failures when persisting job history records.
+type HistoryRecorder interface {
+	// RecordFailure records a failure to write execution history for job.
+	RecordFailure(job string)
+}
+
 // Noop is the default Recorder that discards everything; it keeps callers
 // safe when no metrics sink is configured.
 type Noop struct{}
@@ -105,4 +114,10 @@ func (Noop) FencedWrite() {}
 // MissedRun implements Recorder.
 func (Noop) MissedRun(_ string) {}
 
-var _ Recorder = (*Noop)(nil)
+// RecordFailure implements HistoryRecorder.
+func (Noop) RecordFailure(_ string) {}
+
+var (
+	_ Recorder        = (*Noop)(nil)
+	_ HistoryRecorder = (*Noop)(nil)
+)

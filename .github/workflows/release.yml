@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
+        with:
+          go-version: '1.23'
+
+      - name: Validate Semantic Version Tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "Error: Tag ${TAG} does not adhere to Semantic Versioning (vMAJOR.MINOR.PATCH)"
+            exit 1
+          fi
+          echo "Release tag: ${TAG}"
+
+      - name: Run verification tests
+        run: |
+          go test -v -race ./...
+
+      - name: Check documentation coverage
+        run: |
+          go run ./internal/tools/godoccheck
+
+      - name: Build examples
+        run: |
+          go build ./examples/...
+
+      - name: Generate Checksums
+        run: |
+          mkdir -p dist
+          # Package checksums for verification
+          find . -maxdepth 2 -name "go.mod" -exec sha256sum {} + > dist/checksums-mod.txt
+          sha256sum CHANGELOG.md >> dist/checksums-mod.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191 # v2.0.8
+        with:
+          name: "Release ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist/*
+            CHANGELOG.md
