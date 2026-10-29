@@ -26,9 +26,10 @@ Register notification hooks using `dcron.WithHooks`:
 
 ```go
 // Custom alerting hook (e.g. Sentry / Datadog)
-alertHook := dcron.HookFunc(func(ctx context.Context, res executor.Result) error {
-    if res.Outcome == metrics.OutcomePanicked {
-        log.Printf("ALERT: Job %s panicked: %v\nStack:\n%s", res.Name, res.PanicValue, string(res.Stack))
+alertHook := dcron.HookFunc(func(ctx context.Context, res dcron.Result) error {
+    if res.Outcome == dcron.OutcomePanicked {
+        log.Printf("ALERT: Job %s panicked: %v (after %d attempts in %v)", 
+            res.Name, dcron.RedactError(res.Error), res.Attempts, res.Duration)
     }
     return nil
 })
@@ -39,21 +40,45 @@ scheduler, err := dcron.New(
 )
 ```
 
-## Exponential Backoff & Jitter Retries
+## Exponential Backoff, Jitter Retries & Retry Filters
 
 Transient errors (e.g. database deadlocks, network timeouts) can be retried automatically using `dcron.WithRetry`:
 
 ```go
 scheduler.Add("charge-pending-subscriptions", "0 6 * * *", chargeFn,
     dcron.WithRetry(dcron.Retry{
-        Attempts:   3,                 // Attempt up to 3 times
+        Attempts:   3,                 // Attempt up to 3 times (1 initial run + 2 retries)
         Backoff:    500 * time.Millisecond, // Initial delay
         Factor:     2.0,               // Double delay each retry (500ms, 1s, 2s)
         MaxBackoff: 10 * time.Second,  // Cap maximum backoff delay
         Jitter:     true,              // Randomize delay to prevent synchronized retry spikes
         Timeout:    30 * time.Second,  // Timeout for each individual attempt
+        Retryable: func(err error) bool {
+            // Only retry transient errors; abort immediately on terminal business validation
+            return !errors.Is(err, ErrInvalidCustomerAccount)
+        },
     }),
 )
+```
+
+### Disabling Retries (`dcron.WithNoRetry`)
+
+For non-idempotent operations where re-executing on failure could cause duplicate side effects (e.g., initiating wire transfers or sending customer SMS messages), explicitly disable retries using `dcron.WithNoRetry()`:
+
+```go
+scheduler.Add("send-welcome-sms", "*/10 * * * *", sendSMSFn,
+    dcron.WithNoRetry(),
+)
+```
+
+> **Note on Default Retry Attempts**: If `WithRetry` is omitted, `d-cron` defaults to 5 attempts for backward compatibility. Use `WithNoRetry()` whenever an operation must execute at most once.
+
+### Sanitizing Error Messages (`dcron.RedactError`)
+
+To prevent accidental leakage of database credentials, bearer tokens, or API keys into application logs, monitoring alerts, or webhook payloads, wrap error strings with `dcron.RedactError(err)`:
+
+```go
+sanitizedMsg := dcron.RedactError(err)
 ```
 
 ## Timeout Management & Context Cancellation

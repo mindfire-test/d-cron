@@ -27,7 +27,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func createScheduler(db *sql.DB) (*dcron.Dcron, error) {
+func createScheduler(db *sql.DB) (*dcron.Scheduler, error) {
 	return dcron.New(db,
 		// Unique namespace to isolate advisory locks per application
 		dcron.WithNamespace("payment-service"),
@@ -41,8 +41,8 @@ func createScheduler(db *sql.DB) (*dcron.Dcron, error) {
 		// Standard structured logger
 		dcron.WithLogger(slog.Default()),
 
-		// Default execution timeout applied to registered jobs
-		dcron.WithTimeout(10*time.Minute),
+		// Grace period allowed on Stop before in-flight jobs are cancelled
+		dcron.WithDrainTimeout(30*time.Second),
 	)
 }
 ```
@@ -52,15 +52,22 @@ func createScheduler(db *sql.DB) (*dcron.Dcron, error) {
 | Option | Description | Default |
 | :--- | :--- | :--- |
 | `WithNamespace(name)` | Sets the advisory lock key namespace. Prevents lock collisions between independent applications sharing a database. | `"default"` |
-| `WithPollInterval(duration)` | Polling frequency used by standby replicas to attempt lock acquisition. | `5s` |
-| `WithSessionStableConnection()` | Pins the election loop to a dedicated, persistent `*sql.Conn` to prevent connection-pool recycling issues. | Enabled |
+| `WithPollInterval(duration)` | Polling frequency used by standby replicas to attempt lock acquisition (with ±20% jitter). | `5s` |
+| `WithDrainTimeout(duration)` | Grace period allowed during `Stop()` for active in-flight jobs to complete. | `30s` |
+| `WithStartupTimeout(duration)` | Maximum timeout bounding startup DB operations (lock connection, migrations, keepalives). | `15s` |
+| `WithPollTimeout(duration)` | Per-attempt timeout for advisory lock probe queries (`TryLock`, `HoldsLock`). | `5s` |
+| `WithDBTimeout(duration)` | Per-operation timeout for history store and admin mutation database queries. | `5s` |
+| `WithOpTimeout(duration)` | Alias for `WithDBTimeout`. | `5s` |
+| `WithSessionStableConnection()` | Asserts the database connection handle is session-stable (direct Postgres or session-mode pooler). | Required unless dedicated lock configured |
+| `WithDedicatedLockDSN(dsn)` | Opens an independent direct connection for advisory locks, bypassing any shared pooler. | None |
+| `WithDedicatedLockDriver(drv, dsn)` | Opens an independent direct lock connection using a custom registered driver (e.g., `"pgx"`). | None |
+| `WithLeaderForwardURL(url)` | Configures the HTTP URL of the active leader for transparent standby mutation proxying. | None |
+| `WithJobHandler(name, fn)` | Registers a named handler function used when restoring dynamic jobs across failover. | None |
 | `WithLogger(logger)` | Integrates standard Go `log/slog` structured logging. | `slog.Default()` |
-| `WithTimeout(duration)` | Sets a global execution timeout for all jobs unless overridden per job. | None |
-| `WithDBTimeout(duration)` | Sets query timeout for epoch, history, and job state database operations. | `5s` |
-| `WithLeaderForwardURL(url)` | Configures the HTTP URL of the active leader (or leader service) for standby mutation forwarding. | None |
-| `WithJobHandler(name, fn)` | Registers a named handler function used when restoring dynamic jobs on failover. | None |
-| `WithOverlapPolicy(policy)` | Configures behavior when a job trigger arrives while the previous run is still active (`OverlapSkip` or `OverlapAllow`). | `OverlapSkip` |
+| `WithMetrics(rec)` | Supplies an observability recorder to receive cluster and job metrics. | `metrics.Noop` |
+| `WithTracer(tracer)` | Supplies an OpenTelemetry tracer for tracing job executions. | `otel.NoopTracer` |
 | `WithHistory(retention)` | Enables the persistent audit store to record execution logs and leader epochs in PostgreSQL. | Disabled |
+| `WithSchema(schema)` | Configures the schema name used for history and epoch tables. | `"dcron"` |
 
 ## Registering Jobs & Schedules
 
@@ -145,9 +152,6 @@ err := scheduler.Pause("nightly-backup")
 // Resume a paused job
 err = scheduler.Resume("nightly-backup")
 
-// Manually trigger a job immediately outside its normal schedule
-err = scheduler.Trigger("nightly-backup")
-
 // Remove a registered job (durably removed across the cluster)
 err = scheduler.Remove("cache-warmer")
 
@@ -156,8 +160,11 @@ err = scheduler.AddDynamic("report-export", "@every 30m", func(ctx context.Conte
 	return generateExport(ctx)
 })
 
-// Check current leadership status of this container instance
-isLeader := scheduler.IsLeader()
+// Check current leadership status of this replica
+isLeader := (scheduler.Leadership() == dcron.LeadershipLeader)
+
+// Verify database pool and dedicated lock connection health
+err = scheduler.HealthCheck(ctx)
 ```
 
 ### Cluster-Wide Admin Mutations & Failover

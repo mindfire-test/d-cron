@@ -71,14 +71,14 @@ spec:
 
 ## 2. Health & Readiness Probes
 
-In your Go application, expose `/healthz` to report readiness:
+In your Go application, use `scheduler.HealthCheck(ctx)` to verify that both the database pool and the dedicated advisory lock connection are reachable:
 
 ```go
 http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-    // Both Leader and Standby pods are healthy as long as database connection is alive!
-    if err := db.PingContext(r.Context()); err != nil {
+    // Both Leader and Standby pods are healthy as long as connectivity is alive!
+    if err := scheduler.HealthCheck(r.Context()); err != nil {
         w.WriteHeader(http.StatusServiceUnavailable)
-        fmt.Fprintf(w, "database unreachable: %v", err)
+        fmt.Fprintf(w, "health check failed: %v", err)
         return
     }
     w.WriteHeader(http.StatusOK)
@@ -88,7 +88,14 @@ http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 
 > **Important**: Do not fail readiness probes on Standby pods! Standby pods are healthy and ready to serve user HTTP requests, background API queries, and take over leadership instantly if the active leader terminates.
 
-## 3. PgBouncer and Connection Pooling
+## 3. Delivery Guarantees
+
+Under the d-cron single-leader coordination architecture:
+- **Normal Operation**: **At most once per scheduled tick**. Exactly one elected leader pod evaluates schedules and dispatches job functions.
+- **Failover with Catch-Up**: **At least once with catch-up enabled** (`MissedCatchUp`). If a leader fails during execution, a newly promoted standby catches up missed ticks up to `WithMaxCatchUpRuns` and `WithMaxLookback`.
+- **Split-Brain Mitigation**: Every job receives `dcron.Epoch(ctx)` and `dcron.IdempotencyKey(ctx)`. Using `dcron.Fence(ctx, tx)` ensures older leaders cannot commit writes after promotion of a new leader.
+
+## 4. PgBouncer and Connection Pooling
 
 PostgreSQL advisory locks are **Session-Bound**, meaning they attach to the physical TCP connection between client and database.
 
@@ -109,6 +116,16 @@ scheduler, _ := dcron.New(
     appDB,
     dcron.WithNamespace("orders-service"),
     dcron.WithDedicatedLockDSN("postgres://user:pass@postgres-direct:5432/myapp_db?sslmode=disable"),
+)
+```
+
+If your project registers a custom driver name (such as `"pgx"`), use `dcron.WithDedicatedLockDriver`:
+
+```go
+scheduler, _ := dcron.New(
+    appDB,
+    dcron.WithNamespace("orders-service"),
+    dcron.WithDedicatedLockDriver("pgx", "postgres://user:pass@postgres-direct:5432/myapp_db?sslmode=disable"),
 )
 ```
 
@@ -136,9 +153,9 @@ scheduler, _ := dcron.New(
 )
 ```
 
-## 4. Driver Setup: `pgx/v5` & `lib/pq`
+## 5. Driver Setup: `pgx/v5` & `lib/pq`
 
-`d-cron` supports both standard `database/sql` (`lib/pq`, `pgx/v5/stdlib`) and native `pgx/v5` pool connections (`*pgxpool.Pool`).
+`d-cron` supports any standard `*sql.DB` connection pool (`lib/pq`, `pgx/v5/stdlib`).
 
 ### Setup with `pgx/v5/stdlib`
 
@@ -190,10 +207,14 @@ import (
 )
 
 db, _ := sql.Open("postgres", "postgres://user:pass@localhost:5432/myapp?sslmode=disable")
-scheduler, _ := dcron.New(db, dcron.WithNamespace("my-service"))
+scheduler, _ := dcron.New(
+	db, 
+	dcron.WithNamespace("my-service"),
+	dcron.WithSessionStableConnection(),
+)
 ```
 
-## 5. Graceful Shutdown & Drain Timeout
+## 6. Graceful Shutdown & Drain Timeout
 
 Always listen for OS termination signals (`SIGTERM`, `SIGINT`) to allow running jobs to finish and release the leadership lock gracefully:
 

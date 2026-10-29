@@ -53,7 +53,7 @@ GRANT CONNECT ON DATABASE myapp_db TO app_user;
 
 ### Optional History & Audit Store Setup
 
-If you choose to enable durable execution history logging (`dcron.WithHistory(retention)`), d-cron automatically creates and migrates its required schema (default `"dcron"`) and tables (`leader_epoch` and `execution`) under a serialized advisory lock.
+If you choose to enable durable execution history logging (`dcron.WithHistory(retention)`), d-cron automatically creates and migrates its required schema (default `"dcron"`) and tables (`leader_epoch`, `execution`, and `job_state`) under a serialized advisory lock.
 
 If your database user does not have DDL privileges, you can execute the idempotent DDL migration script manually ahead of time:
 
@@ -74,16 +74,30 @@ CREATE TABLE IF NOT EXISTS dcron.execution (
     scheduled_at  TIMESTAMPTZ NOT NULL,
     started_at    TIMESTAMPTZ NOT NULL,
     finished_at   TIMESTAMPTZ,
-    duration_ms   BIGINT,
-    outcome       TEXT NOT NULL,
-    error         TEXT,
+    status        TEXT NOT NULL,
     attempt       INT NOT NULL DEFAULT 1,
-    leader_epoch  BIGINT NOT NULL,
-    instance_id   TEXT NOT NULL
+    duration_ms   BIGINT,
+    error         TEXT,
+    instance_id   TEXT NOT NULL,
+    leader_epoch  BIGINT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_dcron_exec_job_sched 
-    ON dcron.execution(namespace, job_name, scheduled_at DESC);
+CREATE TABLE IF NOT EXISTS dcron.job_state (
+    namespace   TEXT NOT NULL,
+    job_name    TEXT NOT NULL,
+    paused      BOOLEAN NOT NULL DEFAULT false,
+    removed     BOOLEAN NOT NULL DEFAULT false,
+    spec        TEXT NOT NULL DEFAULT '',
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (namespace, job_name)
+);
+
+CREATE INDEX IF NOT EXISTS execution_job_time_idx 
+    ON dcron.execution (namespace, job_name, scheduled_at DESC);
+CREATE INDEX IF NOT EXISTS execution_prune_idx 
+    ON dcron.execution (namespace, finished_at);
+CREATE INDEX IF NOT EXISTS execution_prune_running_idx 
+    ON dcron.execution (namespace, started_at) WHERE status = 'running';
 ```
 
 ## Next Steps

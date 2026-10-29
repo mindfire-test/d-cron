@@ -57,9 +57,16 @@ scheduler.Add("daily-settlement", "0 2 * * *", settlementHandler,
 | `dcron.MissedSkip` | `0` (Default) | Ignores past missed triggers during downtime and waits for the next future schedule time. |
 | `dcron.MissedCatchUp` | `1` | Inspects execution history and runs missed schedules sequentially up to `WithMaxCatchUpRuns` and `WithMaxLookback`. Requires `dcron.WithHistory`. |
 
+### Failover Promotion & Queue Realignment
+
+When a standby replica acquires the advisory lock and is promoted to Leader:
+1. **Clock Realignment (`Queue.Realign`)**: The scheduler evaluates the min-heap timer queue against the current system time (`now`).
+2. **Stale Schedule Advancement**: For all jobs with `MissedSkip` (the default), any next-run timestamps that fell into the past while the replica was on standby are automatically advanced to the next valid schedule in the future. This prevents thundering bursts of past ticks upon failover.
+3. **Catch-Up Processing**: For jobs configured with `MissedCatchUp`, the promoted leader queries the PostgreSQL execution history store, identifies any unexecuted scheduled slots within `WithMaxLookback`, and dispatches them sequentially up to `WithMaxCatchUpRuns`.
+
 ## Execution Relative to Last Success (`WithSinceLastSuccess`)
 
-For jobs that need a fixed quiet period between executions regardless of clock alignment:
+For heavy data syncs or external API scrapers that require a guaranteed quiet period between runs rather than fixed wall-clock alignment:
 
 ```go
 // Fire 15 minutes AFTER the previous run successfully completed
@@ -67,6 +74,17 @@ scheduler.Add("heavy-backup", "@since_success 15m", backupHandler,
     dcron.WithSinceLastSuccess(15 * time.Minute),
 )
 ```
+
+Unlike fixed cron schedules (such as `*/15 * * * *`), `WithSinceLastSuccess`:
+- Calculates the next fire time relative to `finished_at` of the previous successful run.
+- Ensures a long-running batch job taking 45 minutes does not trigger immediately upon finishing; it rests for the full 15-minute interval before running again.
+
+## Overlap Handling During Retries
+
+When a job is configured with exponential backoff retries (`dcron.WithRetry`):
+- `WithNoOverlap()` (`OverlapSkip`) spans the entire logical execution lifecycle, including all retry backoff delays.
+- If a job fails attempt 1 and is sleeping for a 30-second backoff when the next regular cron tick arrives, `d-cron` recognizes the active logical execution and skips the scheduled tick.
+- This guarantees that retrying jobs never collide with regular scheduled ticks.
 
 ## Example Configuration Matrix
 
@@ -79,10 +97,17 @@ scheduler.Add("ledger-audit", "0 0 * * *", auditFn,
     dcron.WithTimeout(30 * time.Minute),
 )
 
-// 2. Realtime Cache Refresh (Skip overlaps, skip missed runs, 2m timeout)
+// 2. Realtime Cache Refresh (Skip overlaps, skip missed runs, no retries, 2m timeout)
 scheduler.Add("cache-warmup", "*/5 * * * *", warmupFn,
     dcron.WithNoOverlap(),
     dcron.WithMissedRunPolicy(dcron.MissedSkip),
+    dcron.WithNoRetry(),
     dcron.WithTimeout(2 * time.Minute),
+)
+
+// 3. Database Compaction (Guaranteed 1-hour quiet period after success)
+scheduler.Add("db-compaction", "@since_success 1h", compactFn,
+    dcron.WithSinceLastSuccess(1 * time.Hour),
+    dcron.WithTimeout(45 * time.Minute),
 )
 ```

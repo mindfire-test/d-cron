@@ -14,9 +14,25 @@ This page provides solutions for common issues encountered when integrating or d
 
 **Solutions:**
 
-- **Verify connection pooler mode**: If you are using PgBouncer, ensure it is not operating in transaction mode for `d-cron`. Use a direct PostgreSQL connection for the lock via `dcron.WithDedicatedLockDSN("postgres://...")` or configure a dedicated PgBouncer database alias in session mode. See the [Production Guide](./production/kubernetes.md#3-pgbouncer-and-connection-pooling).
+- **Verify connection pooler mode**: If you are using PgBouncer, ensure it is not operating in transaction mode for `d-cron`. Use a direct PostgreSQL connection for the lock via `dcron.WithDedicatedLockDSN("postgres://...")` or configure a dedicated PgBouncer database alias in session mode. See the [Production Guide](./production/kubernetes.md#4-pgbouncer-and-connection-pooling).
 - **Prevent connection recycling**: If passing a shared `*sql.DB` connection pool, ensure `db.SetConnMaxLifetime(0)` is set on the lock connection handle so Go's connection pool does not close the session periodically.
 - **Check TCP keepalive settings**: Ensure PostgreSQL connection keepalives (`keepalives=1&keepalives_idle=10&keepalives_interval=3&keepalives_count=3`) are configured in the DSN to detect dropped connections quickly.
+
+### Problem: `dcron: session stability not asserted; refusing to start`
+
+**Solutions:**
+
+- **Explicit assertion required**: `d-cron` requires session-bound connections for PostgreSQL advisory locks to guarantee safety. When using PgBouncer in transaction pooling mode, connection recycling can silently orphan locks or create multiple simultaneous leaders.
+- **Direct connection or session mode**: If your `*sql.DB` connects directly to PostgreSQL or a session-mode pooler, add `dcron.WithSessionStableConnection()` to your `dcron.New(...)` constructor call.
+- **Dedicated lock connection**: If your application pool connects through transaction-mode PgBouncer, provide an independent direct lock connection with `dcron.WithDedicatedLockDSN("postgres://...")` or `dcron.WithDedicatedLockDriver("pgx", "postgres://...")`.
+
+### Problem: `dcron: not the leader` (HTTP 409 Conflict) on job mutations
+
+**Solutions:**
+
+- **Standby mutation rejection**: Administrative mutations (`Pause`, `Resume`, `Remove`, `AddDynamic`) modify the active cluster scheduling loop and must execute against the current active Leader replica.
+- **Configure mutation forwarding**: Pass `dcron.WithLeaderForwardURL("http://dcron-leader:8080")` when initializing `dcron.New(...)`. Standby replicas will automatically proxy administrative mutation requests to the active leader and return its response.
+- **Direct leader routing**: Alternatively, route administrative HTTP traffic through a Kubernetes service targeting the active leader pod.
 
 ### Problem: Jobs executing simultaneously on multiple pods (Duplicate runs)
 
