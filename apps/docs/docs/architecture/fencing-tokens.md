@@ -48,7 +48,7 @@ scheduler.Add("generate-invoices", "0 1 * * *", func(ctx context.Context) error 
 
 When `WithHistory` is enabled, `d-cron` automatically records the latest active leader epoch in `{schema}.leader_epoch`.
 
-Inside any scheduled job handler, call `dcron.Fence(ctx, tx)` inside your database transaction. It verifies under a `FOR SHARE` row-level lock that the context's epoch still matches the active database epoch:
+Inside any scheduled job handler, call `dcron.Fence(ctx, tx)` (or `dcron.FenceSchema(ctx, tx, schema)`) inside your database transaction. It verifies under a `FOR SHARE` row-level lock that the context's epoch still matches the active database epoch:
 
 ```go
 scheduler.Add("process-billing-ledger", "0 0 * * *", func(ctx context.Context) error {
@@ -58,7 +58,7 @@ scheduler.Add("process-billing-ledger", "0 0 * * *", func(ctx context.Context) e
     }
     defer tx.Rollback()
 
-    // 1. Validate epoch against PostgreSQL leader_epoch table
+    // 1. Validate epoch against PostgreSQL leader_epoch table under FOR SHARE lock
     if err := dcron.Fence(ctx, tx); err != nil {
         // Demoted leader! Roll back and safely abort without side effects.
         return fmt.Errorf("fencing rejection: %w", err)
@@ -78,6 +78,17 @@ If another pod was promoted to leader while this handler was paused, `dcron.Fenc
 ```
 dcron: fenced write rejected: ctx epoch 4 != current db epoch 5
 ```
+
+When a write is rejected:
+1. `tx.Rollback()` safely rolls back any uncommitted changes.
+2. `d-cron` increments `KeyFencedWrites` (`dcron_fenced_writes_total`) on your configured `metrics.Recorder`, giving operators immediate observability into network split events.
+
+### Schema Validation & Injection Guard
+
+When using custom schemas with `dcron.FenceSchema(ctx, tx, "custom_schema")`:
+- The schema identifier is rigorously verified by `store.ValidateSchema` against an allowlist pattern (`^[a-z_][a-z0-9_]{0,62}$`).
+- Reserved `"public"` schema is rejected to keep library tables isolated.
+- Identifiers are escaped with double quotes in all generated SQL to guard against SQL injection.
 
 ## Database Optimistic Fencing Pattern
 

@@ -15,7 +15,7 @@ When you scale a Go application to multiple container replicas (in Kubernetes, D
 
 d-cron solves this through distributed single-leader coordination:
 - **Leader Election via PostgreSQL**: Automatically elects one replica as the active Leader to run the scheduler clock.
-- **Single Active Leader Coordination**: Scheduled jobs are dispatched by the single elected leader replica, ensuring at-most-once delivery by default, with deterministic idempotency keys provided to user jobs for at-least-once safety during failovers.
+- **Single Active Leader Coordination**: Scheduled jobs are dispatched by the single elected leader replica, guaranteeing at most once per tick under normal operation, and at least once with catch-up policies enabled. Deterministic idempotency keys and monotonic epoch tokens are provided to user jobs for split-brain safety during failovers.
 - **Automatic Failover**: If the active leader container shuts down, restarts, or loses connectivity, a standby replica cleanly takes over leadership.
 - **Zero Extra Infrastructure**: Operates using standard PostgreSQL session-bound advisory locks. No Redis clusters, etcd, ZooKeeper, or external scheduler daemons are required.
 

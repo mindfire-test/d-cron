@@ -166,3 +166,10 @@ type Backend interface {
 ```
 
 The production implementation (`NewStdBackend`) manages a dedicated session-stable `*sql.Conn` that holds the advisory lock for the duration of the leadership tenure.
+
+### Bounded Lock Timeouts & Diagnostics
+
+1. **`WithStartupTimeout(d)`** (default `15s`): Bounces startup hangs if the dedicated database connection cannot be reserved, keepalive queries hang, or schema migrations stall.
+2. **`WithPollTimeout(d)`** (default `5s`): Binds individual `TryLock` and `HoldsLock` probe queries with an explicit context timeout, ensuring transient database network stalls do not freeze the election loop.
+3. **TCP Keepalive Inspection**: At startup, `d-cron` probes the lock connection's TCP keepalive status. If keepalives are disabled in the DSN, a structured warning is emitted with recommended connection string parameters (`keepalives=1&keepalives_idle=10&keepalives_interval=3&keepalives_count=3`).
+4. **Custom Driver Names**: Applications using drivers like `pgx` with custom driver registrations can pass `dcron.WithDedicatedLockDriver("pgx", dsn)` to instantiate the dedicated lock connection using their registered driver name.

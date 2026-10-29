@@ -63,101 +63,93 @@ func main() {
 }
 ```
 
-## 2. REST Admin API Endpoints
+## 2. REST Admin API Endpoints & Security
 
 To programmatically inspect cluster topology or manipulate jobs at runtime, mount `dcron.AdminHandler`:
 
 ```go
-auth := func(r *http.Request) bool {
-    // Verify Bearer token or custom header
-    return r.Header.Get("Authorization") == "Bearer secret-token"
-}
+// Protect admin endpoints with constant-time Bearer token authentication
+auth := dcron.RequireBearerToken(os.Getenv("DCRON_ADMIN_TOKEN"))
 
 http.Handle("/api/v1/dcron/", http.StripPrefix("/api/v1/dcron", dcron.AdminHandler(auth, scheduler)))
 ```
 
-### Endpoints Reference
+> [!WARNING] Security Warning:
+> If `auth` is `nil`, all endpoints are completely unauthenticated. Any client with network reachability to the server can inspect schedules, pause or remove existing jobs, or inject dynamic jobs. In production environments, always provide a non-nil `AuthFunc` (such as `RequireBearerToken`) or place the handler behind an authentication reverse proxy / TLS gateway.
 
-> **Note on Cluster Topology:**
-> Job mutations (`/pause`, `/resume`, `DELETE`) are applied to the process-local in-memory state of the active **Leader** replica. Mutation requests sent to a standby replica are rejected with `409 Conflict` (`dcron: not the leader`). Ensure administrative traffic is routed to the active leader instance.
+### Standby Mutation Forwarding
+
+In horizontally scaled deployments, clients or dashboards might send HTTP mutation requests (`POST /jobs`, `/pause`, `/resume`, `DELETE`) to any replica behind a round-robin load balancer.
+
+- **With `WithLeaderForwardURL("http://dcron-leader:8080")`**: A standby replica automatically proxies the mutation request to the active leader and streams back the leader's response.
+- **Without Leader URL**: Standby replicas reject mutation requests immediately with `409 Conflict` (`dcron: not the leader`), preventing split-brain in-memory edits.
+
+### Endpoints Reference
 
 | Method | Endpoint Path | Description | Response Status |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/status` | Returns node ID, namespace, leadership flag, and all job statuses | `200 OK` (JSON) |
-| `POST` | `/jobs/{name}/pause` | Pauses future automatic triggers for a specific job on the leader | `204 No Content` / `409 Conflict` (Standby) |
-| `POST` | `/jobs/{name}/resume` | Resumes automatic triggers for a previously paused job on the leader | `204 No Content` / `409 Conflict` (Standby) |
-| `DELETE` | `/jobs/{name}` | Unregisters a job from the leader at runtime | `204 No Content` / `409 Conflict` (Standby) |
+| `GET` | `/status` | Returns instance ID, namespace, leadership flag, and all job statuses | `200 OK` (JSON) |
+| `POST` | `/jobs` | Registers a dynamic job at runtime (`{"name": "...", "spec": "..."}`) | `201 Created` / `409 Conflict` |
+| `POST` | `/jobs/{name}/pause` | Pauses future automatic triggers for a specific job | `204 No Content` / `409 Conflict` |
+| `POST` | `/jobs/{name}/resume` | Resumes automatic triggers for a previously paused job | `204 No Content` / `409 Conflict` |
+| `DELETE` | `/jobs/{name}` | Unregisters and durably removes a job across the cluster | `204 No Content` / `409 Conflict` |
 
 #### Example REST Invocations
 
 ```bash
 # 1. Cluster Status Snapshot
-curl -s http://localhost:8080/api/v1/dcron/status | jq .
+curl -s -H "Authorization: Bearer secret-token" http://localhost:8080/api/v1/dcron/status | jq .
 
-# 2. Pause a Job
-curl -X POST http://localhost:8080/api/v1/dcron/jobs/daily-report/pause
+# 2. Register Dynamic Job at Runtime
+curl -X POST -H "Authorization: Bearer secret-token" -H "Content-Type: application/json" \
+  -d '{"name":"ad-hoc-sync","spec":"@every 10m"}' \
+  http://localhost:8080/api/v1/dcron/jobs
 
-# 3. Resume a Job
-curl -X POST http://localhost:8080/api/v1/dcron/jobs/daily-report/resume
+# 3. Pause a Job
+curl -X POST -H "Authorization: Bearer secret-token" \
+  http://localhost:8080/api/v1/dcron/jobs/daily-report/pause
 
-# 4. Remove a Job Dynamically
-curl -X DELETE http://localhost:8080/api/v1/dcron/jobs/daily-report
+# 4. Resume a Job
+curl -X POST -H "Authorization: Bearer secret-token" \
+  http://localhost:8080/api/v1/dcron/jobs/daily-report/resume
+
+# 5. Remove a Job Dynamically
+curl -X DELETE -H "Authorization: Bearer secret-token" \
+  http://localhost:8080/api/v1/dcron/jobs/daily-report
 ```
 
 ## 3. Prometheus Metrics
 
-`d-cron` defines a pluggable `metrics.Recorder` interface (`github.com/mindfire-test/d-cron/metrics`).
+`d-cron` defines a pluggable `metrics.Recorder` interface (`github.com/mindfire-test/d-cron/metrics`). Standard metric names are defined as constants so custom Prometheus exporters share a stable contract:
 
-### Key Prometheus Metric Descriptors
+### Standard Metric Keys
 
-| Metric Name | Type | Labels | Description |
+| Metric Constant | Metric Name | Type | Description |
 | :--- | :--- | :--- | :--- |
-| `dcron_leadership_status` | Gauge | `namespace`, `node_id` | `1` if this replica is the active Leader; `0` if Standby |
-| `dcron_leadership_transitions_total` | Counter | `namespace`, `to_state` | Total leadership promotions and demotions |
-| `dcron_job_executions_total` | Counter | `job`, `outcome` | Total execution count partitioned by `success`, `failed`, `skipped`, `panic` |
-| `dcron_job_duration_seconds` | Histogram | `job` | Execution latency distribution per job |
-| `dcron_job_panics_total` | Counter | `job` | Total caught runtime panics |
+| `KeyIsLeader` | `dcron_is_leader` | Gauge | `1` if this replica is the active Leader; `0` if Standby |
+| `KeyLeaderTransitions` | `dcron_leader_transitions_total` | Counter | Total leadership promotions and demotions (flapping detector) |
+| `KeyJobExecutions` | `dcron_job_executions_total` | Counter | Total job executions partitioned by outcome (`success`, `failed`, `panicked`, `timeout`, `canceled`, `skipped`) |
+| `KeyJobDuration` | `dcron_job_duration_seconds` | Histogram | Execution latency distribution per job |
+| `KeyJobLastSuccess` | `dcron_job_last_success_timestamp` | Gauge | Unix timestamp of last successful execution per job |
+| `KeyJobsRunning` | `dcron_jobs_running` | Gauge | Number of jobs currently executing concurrently |
+| `KeyFencedWrites` | `dcron_fenced_writes_total` | Counter | Total database writes rejected due to stale leader epoch (split-brain detector) |
+| `KeyMissedRuns` | `dcron_missed_runs_total` | Counter | Total scheduled ticks missed or caught up |
+| `KeyRecordFailures` | `dcron_record_failures_total` | Counter | Failed database writes to execution history |
+| `KeyBackendErrors` | `dcron_backend_errors_total` | Counter | Database communication failures or advisory lock backend errors |
 
-### Prometheus Integration Example
+### Optional Recorder Extensions
+
+Recorders can implement optional extension interfaces:
 
 ```go
-type promRecorder struct {
-	executions *prometheus.CounterVec
-	duration   *prometheus.HistogramVec
-	leader     *prometheus.GaugeVec
+// HistoryRecorder tracks failures when persisting execution history
+type HistoryRecorder interface {
+    RecordFailure(job string)
 }
 
-func newPrometheusRecorder(reg prometheus.Registerer) *promRecorder {
-	r := &promRecorder{
-		executions: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "dcron_job_executions_total",
-			Help: "Total job runs by outcome",
-		}, []string{"job", "outcome"}),
-		duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "dcron_job_duration_seconds",
-			Help:    "Execution duration in seconds",
-			Buckets: prometheus.DefBuckets,
-		}, []string{"job"}),
-		leader: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "dcron_leadership_status",
-			Help: "1 if current node is cluster leader, 0 otherwise",
-		}, []string{"namespace"}),
-	}
-	reg.MustRegister(r.executions, r.duration, r.leader)
-	return r
-}
-
-func (r *promRecorder) RecordJobExecution(job, outcome string, dur time.Duration) {
-	r.executions.WithLabelValues(job, outcome).Inc()
-	r.duration.WithLabelValues(job).Observe(dur.Seconds())
-}
-
-func (r *promRecorder) RecordLeadershipChange(leader bool) {
-	val := 0.0
-	if leader {
-		val = 1.0
-	}
-	r.leader.WithLabelValues("orders-service").Set(val)
+// BackendErrorRecorder tracks database or coordination connectivity issues
+type BackendErrorRecorder interface {
+    BackendError(operation string)
 }
 ```
 

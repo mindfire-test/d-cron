@@ -50,8 +50,8 @@ func main() {
 ## Automatic Schema Migrations
 
 When `dcron.WithHistory` is enabled:
-1. `d-cron` acquires a dedicated advisory lock (`d-cron:migration:<schema>`) to serialize schema creation across multiple starting replicas.
-2. It executes idempotent DDL creating the configured schema (default `dcron`) and two core tables:
+1. `d-cron` acquires a dedicated advisory lock (`d-cron:migration:<schema>`) to serialize schema creation across multiple starting replicas without contending with leadership locks.
+2. It executes idempotent DDL creating the configured schema (default `dcron`) and three core tables:
 
 ### 1. `leader_epoch` Table
 Stores the active leader instance and current monotonic election epoch for split-brain fencing:
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS dcron.leader_epoch (
 ```
 
 ### 2. `execution` Table
-Records individual job execution attempts, timestamps, latencies, and outcomes:
+Records individual job execution attempts, timestamps, latencies, and terminal outcomes:
 
 ```sql
 CREATE TABLE IF NOT EXISTS dcron.execution (
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS dcron.execution (
     scheduled_at  TIMESTAMPTZ NOT NULL,
     started_at    TIMESTAMPTZ NOT NULL,
     finished_at   TIMESTAMPTZ,
-    status        TEXT NOT NULL, -- "running", "success", "failed", "panicked", "timeout"
+    status        TEXT NOT NULL, -- "running", "success", "failed", "panicked", "timeout", "canceled"
     attempt       INT NOT NULL DEFAULT 1,
     duration_ms   BIGINT,
     error         TEXT,
@@ -88,7 +88,28 @@ CREATE TABLE IF NOT EXISTS dcron.execution (
 
 CREATE INDEX IF NOT EXISTS execution_job_time_idx
     ON dcron.execution (namespace, job_name, scheduled_at DESC);
+CREATE INDEX IF NOT EXISTS execution_prune_idx
+    ON dcron.execution (namespace, finished_at);
+CREATE INDEX IF NOT EXISTS execution_prune_running_idx
+    ON dcron.execution (namespace, started_at) WHERE status = 'running';
 ```
+
+### 3. `job_state` Table
+Persists cluster-wide job runtime state across leader failover:
+
+```sql
+CREATE TABLE IF NOT EXISTS dcron.job_state (
+    namespace   TEXT NOT NULL,
+    job_name    TEXT NOT NULL,
+    paused      BOOLEAN NOT NULL DEFAULT false,
+    removed     BOOLEAN NOT NULL DEFAULT false,
+    spec        TEXT NOT NULL DEFAULT '',
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (namespace, job_name)
+);
+```
+
+When an administrative mutation (`Pause`, `Resume`, `Remove`, `AddDynamic`) occurs, `d-cron` durably records the change in `job_state`. Upon failover, a newly elected standby reconciles in-memory state with `job_state` so paused, removed, and dynamic jobs persist seamlessly.
 
 ## Automatic Retention & Pruning
 
