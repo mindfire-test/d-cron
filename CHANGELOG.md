@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] - v1.1.0
+## [v1.1.0] - 2026-10-29
 
 ### Added
 - **Cluster Mutations with Standby Forwarding**: Distributed admin endpoints (`Pause`, `Resume`, `Remove`, `AddDynamic`) with HTTP proxying from standby replicas to the active leader, backed by durable `job_state` table storage and failover reconciliation.
