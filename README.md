@@ -83,9 +83,8 @@ func main() {
 	}
 
 	// Register an in-process Go job (cron spec syntax).
-	// By default, jobs execute with zero retries (fail-fast, safe for non-idempotent work).
-	// Use WithRetry(dcron.Retry{Attempts: 1}) to make non-idempotent safety explicit,
-	// or WithRetry(dcron.Retry{Attempts: 3}) for idempotent tasks requiring backoff.
+	// By default, jobs are configured with 5 execution attempts with exponential backoff.
+	// For non-idempotent tasks that must not be retried on failure, pass WithNoRetry():
 	err = scheduler.Add("daily-cleanup", "0 2 * * *", func(ctx context.Context) error {
 		slog.Info("Executing daily report cleanup",
 			slog.String("job", "daily-cleanup"),
@@ -93,7 +92,7 @@ func main() {
 			slog.String("idempotency_key", dcron.IdempotencyKey(ctx)),
 		)
 		return nil
-	}, dcron.WithRetry(dcron.Retry{Attempts: 1}))
+	}, dcron.WithNoRetry())
 	if err != nil {
 		log.Fatalf("Failed to register job: %v", err)
 	}
