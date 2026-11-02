@@ -47,12 +47,13 @@ type options struct {
 	retention time.Duration
 	schema    string
 
-	startupTimeout   time.Duration
-	pollTimeout      time.Duration
-	dbTimeout        time.Duration
-	tracer           otel.Tracer
-	leaderForwardURL string
-	handlers         map[string]JobFunc
+	startupTimeout     time.Duration
+	pollTimeout        time.Duration
+	dbTimeout          time.Duration
+	drainBeforeRelease bool
+	tracer             otel.Tracer
+	leaderForwardURL   string
+	handlers           map[string]JobFunc
 }
 
 func defaultOptions() options {
@@ -115,6 +116,22 @@ func WithPollInterval(d time.Duration) Option {
 func WithDrainTimeout(d time.Duration) Option {
 	return func(o *options) {
 		o.drainTimeout = d
+	}
+}
+
+// WithDrainBeforeRelease configures Stop to wait for running jobs to finish draining
+// before releasing the leadership advisory lock.
+//
+// By default, Stop releases the leadership lock before draining jobs so that standby
+// replicas can quickly assume leadership (minimizing failover latency). However, if jobs
+// take significant time to finish, the newly promoted leader could fire the same jobs
+// concurrently across replicas.
+//
+// Enabling WithDrainBeforeRelease prevents cross-replica overlap during shutdowns, at the
+// cost of delaying standby promotion until the old leader has finished draining.
+func WithDrainBeforeRelease() Option {
+	return func(o *options) {
+		o.drainBeforeRelease = true
 	}
 }
 

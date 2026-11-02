@@ -244,19 +244,25 @@ type JobState struct {
 	Paused    bool
 	Removed   bool
 	Spec      string
+	Origin    string
 	UpdatedAt time.Time
 }
 
 // SaveJobState upserts the durable job state for a given namespace and job.
 func (s *Store) SaveJobState(ctx context.Context, js JobState) error {
-	q := `INSERT INTO ` + s.jobState + ` (namespace, job_name, paused, removed, spec, updated_at)
-		VALUES ($1, $2, $3, $4, $5, now())
+	origin := js.Origin
+	if origin == "" {
+		origin = "dynamic"
+	}
+	q := `INSERT INTO ` + s.jobState + ` (namespace, job_name, paused, removed, spec, origin, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, now())
 		ON CONFLICT (namespace, job_name) DO UPDATE
 		  SET paused     = EXCLUDED.paused,
 		      removed    = EXCLUDED.removed,
 		      spec       = CASE WHEN EXCLUDED.spec <> '' THEN EXCLUDED.spec ELSE ` + s.jobState + `.spec END,
+		      origin     = CASE WHEN EXCLUDED.origin <> '' THEN EXCLUDED.origin ELSE ` + s.jobState + `.origin END,
 		      updated_at = now()`
-	_, err := s.db.ExecContext(ctx, q, js.Namespace, js.JobName, js.Paused, js.Removed, js.Spec)
+	_, err := s.db.ExecContext(ctx, q, js.Namespace, js.JobName, js.Paused, js.Removed, js.Spec, origin)
 	if err != nil {
 		return fmt.Errorf("store: save job state: %w", err)
 	}
@@ -266,12 +272,12 @@ func (s *Store) SaveJobState(ctx context.Context, js JobState) error {
 // GetJobState fetches the durable job state for a specific job in namespace.
 // If the job does not exist in the database, it returns nil, nil.
 func (s *Store) GetJobState(ctx context.Context, namespace, jobName string) (*JobState, error) {
-	q := `SELECT namespace, job_name, paused, removed, spec, updated_at
+	q := `SELECT namespace, job_name, paused, removed, spec, origin, updated_at
 	      FROM ` + s.jobState + `
 	      WHERE namespace = $1 AND job_name = $2`
 	var js JobState
 	err := s.db.QueryRowContext(ctx, q, namespace, jobName).Scan(
-		&js.Namespace, &js.JobName, &js.Paused, &js.Removed, &js.Spec, &js.UpdatedAt,
+		&js.Namespace, &js.JobName, &js.Paused, &js.Removed, &js.Spec, &js.Origin, &js.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -284,7 +290,7 @@ func (s *Store) GetJobState(ctx context.Context, namespace, jobName string) (*Jo
 
 // GetJobStates returns all durable job states registered in the given namespace.
 func (s *Store) GetJobStates(ctx context.Context, namespace string) (map[string]JobState, error) {
-	q := `SELECT namespace, job_name, paused, removed, spec, updated_at
+	q := `SELECT namespace, job_name, paused, removed, spec, origin, updated_at
 	      FROM ` + s.jobState + `
 	      WHERE namespace = $1`
 	rows, err := s.db.QueryContext(ctx, q, namespace)
@@ -296,7 +302,7 @@ func (s *Store) GetJobStates(ctx context.Context, namespace string) (map[string]
 	out := make(map[string]JobState)
 	for rows.Next() {
 		var js JobState
-		if err := rows.Scan(&js.Namespace, &js.JobName, &js.Paused, &js.Removed, &js.Spec, &js.UpdatedAt); err != nil {
+		if err := rows.Scan(&js.Namespace, &js.JobName, &js.Paused, &js.Removed, &js.Spec, &js.Origin, &js.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan job state: %w", err)
 		}
 		out[js.JobName] = js

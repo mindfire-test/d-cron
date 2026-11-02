@@ -6,7 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"strings"
+	"sync"
 )
 
 const (
@@ -44,7 +44,9 @@ type Backend interface {
 }
 
 type stdBackend struct {
-	conn *sql.Conn
+	conn      *sql.Conn
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // NewStdBackend wraps conn as a dedicated-lock backend.
@@ -94,11 +96,14 @@ func (b *stdBackend) Release(ctx context.Context, key int64) (bool, error) {
 
 // Close implements Backend.
 func (b *stdBackend) Close() error {
-	err := b.conn.Close()
-	if err != nil && (errors.Is(err, sql.ErrConnDone) || errors.Is(err, driver.ErrBadConn) || strings.Contains(err.Error(), "already closed")) {
-		return nil
-	}
-	return err
+	b.closeOnce.Do(func() {
+		err := b.conn.Close()
+		if err != nil && (errors.Is(err, sql.ErrConnDone) || errors.Is(err, driver.ErrBadConn)) {
+			err = nil
+		}
+		b.closeErr = err
+	})
+	return b.closeErr
 }
 
 // Ping implements Backend by testing the dedicated lock connection.

@@ -13,34 +13,39 @@ import (
 	"time"
 
 	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfire-test/d-cron/test/integration/testutil"
 )
 
 // TestPgBouncerTransactionPooling tests transaction-mode pooling behavior. It
-// requires a PgBouncer container in transaction mode and is therefore gated
-// behind DCRON_TEST_PGBOUNCER_DSN; the default suite skips it when unset.
-//
-// What it asserts once enabled:
-//   - pg_backend_pid() differs across sequential queries on one *sql.DB pool;
-//   - dcron.New refuses to start without session stability assertions;
-//   - dcron.WithDedicatedLockDSN safely bypasses the transaction-mode pooler.
+// runs against DCRON_TEST_PGBOUNCER_DSN if set, or automatically provisions
+// a PgBouncer container via testutil.
 func TestPgBouncerTransactionPooling(t *testing.T) {
+	var db *sql.DB
 	dsn := os.Getenv("DCRON_TEST_PGBOUNCER_DSN")
-	if dsn == "" {
-		t.Skip("SKIPPED: set DCRON_TEST_PGBOUNCER_DSN to run against a transaction-mode pooler")
+	if dsn != "" {
+		var err error
+		db, err = sql.Open("postgres", dsn)
+		if err != nil {
+			t.Fatalf("open pgbouncer: %v", err)
+		}
+		defer db.Close()
+	} else if testDB != nil {
+		targetDSN := testDSN
+		var pb *testutil.PgBouncerContainer
+		db, pb = testutil.NewPgBouncer(t, targetDSN, 5)
+		if pb == nil || db == nil {
+			return
+		}
+	} else {
+		t.Skip("SKIPPED: PostgreSQL integration pool not initialized and DCRON_TEST_PGBOUNCER_DSN unset")
 	}
-
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatalf("open pgbouncer: %v", err)
-	}
-	defer db.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	// 1. Assert that dcron.New rejects an unconfigured transaction-mode connection pool
 	// because automatic probe detects backend PID instability or pooler mode without session stability
-	_, err = dcron.New(db)
+	_, err := dcron.New(db)
 	if err == nil {
 		t.Fatal("dcron.New expected SessionStabilityError against transaction pooler without WithSessionStableConnection, got nil")
 	}

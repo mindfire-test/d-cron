@@ -162,8 +162,8 @@ func TestE2EAdminMutations_SurviveFailover(t *testing.T) {
 		t.Error("s2: steady-job should have fired after resume")
 	}
 
-	// 5. Remove steady-job on s2
-	if err := s2.Remove("steady-job"); err != nil {
+	// 5. Remove dyn-job on s2
+	if err := s2.Remove("dyn-job"); err != nil {
 		t.Fatalf("s2.Remove: %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestE2EAdminMutations_SurviveFailover(t *testing.T) {
 		t.Fatalf("s2.Stop: %v", err)
 	}
 
-	// 6. Start Replica 3 (new instance): steady-job must be reconciled as removed
+	// 6. Start Replica 3 (new instance): dynamic job dyn-job must NOT be restored, while static steady-job registered in code is kept
 	s3, err := dcron.New(
 		db,
 		dcron.WithNamespace(namespace),
@@ -183,6 +183,7 @@ func TestE2EAdminMutations_SurviveFailover(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New s3: %v", err)
 	}
+	s3.RegisterHandler("dyn-job", func(_ context.Context) error { return nil })
 	if err := s3.Add("steady-job", "@every 50ms", func(_ context.Context) error { return nil }); err != nil {
 		t.Fatalf("s3.Add: %v", err)
 	}
@@ -199,13 +200,20 @@ func TestE2EAdminMutations_SurviveFailover(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	// On s3, steady-job was reconciled as removed from previous leader s2
+	// On s3, dyn-job was reconciled as removed from previous leader s2, and steady-job registered in code is preserved
 	time.Sleep(100 * time.Millisecond)
 	jobs := s3.Jobs()
+	foundSteady := false
 	for _, j := range jobs {
-		if j.Name == "steady-job" {
-			t.Error("s3: steady-job should have been removed after failover reconciliation")
+		if j.Name == "dyn-job" {
+			t.Error("s3: dyn-job should have remained removed after failover reconciliation")
 		}
+		if j.Name == "steady-job" {
+			foundSteady = true
+		}
+	}
+	if !foundSteady {
+		t.Error("s3: steady-job registered in code should be preserved")
 	}
 }
 
@@ -566,5 +574,95 @@ func TestScheduler_PruneHistory_NonBlocking(t *testing.T) {
 	defer stopCancel()
 	if err := s.Stop(stopCtx); err != nil {
 		t.Fatalf("Stop: %v", err)
+	}
+}
+
+// TestE2EAdmin_StaticJobRemovalSurvivesRedeployment asserts that if a static job is removed
+// at runtime via the admin API (writing removed = true to job_state), redeploying the binary
+// with the static job still registered in code clears the removed flag and continues running.
+func TestE2EAdmin_StaticJobRemovalSurvivesRedeployment(t *testing.T) {
+	if testDB == nil {
+		t.Skip("PostgreSQL integration pool not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := mustOpen(t)
+	const namespace = "e2e-static-redeploy"
+
+	// 1. Initial deployment
+	s1, err := dcron.New(
+		db,
+		dcron.WithNamespace(namespace),
+		dcron.WithHistory(time.Hour),
+		dcron.WithSessionStableConnection(),
+		dcron.WithPollInterval(20*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("New s1: %v", err)
+	}
+
+	if err := s1.Add("static-worker", "@every 50ms", func(_ context.Context) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("s1.Add: %v", err)
+	}
+
+	if err := s1.Start(ctx); err != nil {
+		t.Fatalf("Start s1: %v", err)
+	}
+
+	// Remove static job at runtime
+	if err := s1.Remove("static-worker"); err != nil {
+		t.Fatalf("s1.Remove: %v", err)
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	_ = s1.Stop(stopCtx)
+
+	// 2. Second deployment (new process starts with static job registered in code)
+	var redeployedFires atomic.Int64
+	fired := make(chan struct{})
+
+	s2, err := dcron.New(
+		db,
+		dcron.WithNamespace(namespace),
+		dcron.WithHistory(time.Hour),
+		dcron.WithSessionStableConnection(),
+		dcron.WithPollInterval(20*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("New s2: %v", err)
+	}
+
+	if err := s2.Add("static-worker", "@every 20ms", func(_ context.Context) error {
+		if redeployedFires.Add(1) >= 1 {
+			select {
+			case <-fired:
+			default:
+				close(fired)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("s2.Add: %v", err)
+	}
+
+	if err := s2.Start(ctx); err != nil {
+		t.Fatalf("Start s2: %v", err)
+	}
+	defer func() {
+		sc, scCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer scCancel()
+		_ = s2.Stop(sc)
+	}()
+
+	select {
+	case <-fired:
+		// Success: static job was restored and executed
+	case <-time.After(5 * time.Second):
+		t.Fatalf("static job did not fire after redeployment; reconcileJobStates must not permanently delete statically registered jobs")
 	}
 }

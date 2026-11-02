@@ -84,6 +84,7 @@ func MigrationDDL(schema string) []string {
 			paused      boolean     NOT NULL DEFAULT false,
 			removed     boolean     NOT NULL DEFAULT false,
 			spec        text        NOT NULL DEFAULT '',
+			origin      text        NOT NULL DEFAULT 'dynamic',
 			updated_at  timestamptz NOT NULL DEFAULT now(),
 			PRIMARY KEY (namespace, job_name)
 		)`,
