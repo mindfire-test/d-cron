@@ -57,7 +57,6 @@ By participating in this project, you agree to abide by the [CODE_OF_CONDUCT.md]
 2. Install development tools:
    ```bash
    go install mvdan.cc/gofumpt@latest
-   go install github.com/daixiang0/gci@latest
    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
    go install github.com/evilmartians/lefthook@latest
    ```
@@ -235,7 +234,7 @@ Use the [Conventional Commits](https://www.conventionalcommits.org/) format:
   ```bash
   gofumpt -w .
   ```
-- Use `gci` or `goimports` for import grouping and management.
+- Use `goimports` for import grouping and management.
 - Follow [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments).
 
 ### Core Architectural Boundaries

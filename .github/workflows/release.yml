@@ -35,6 +35,7 @@ jobs:
       - name: Run verification tests
         run: |
           go test -v -race ./...
+          (cd test/integration && go test -v -race -tags integration -timeout 15m .)
 
       - name: Check documentation coverage
         run: |
@@ -42,7 +43,12 @@ jobs:
 
       - name: Build examples
         run: |
-          go build ./examples/...
+          for dir in examples/*; do
+            if [ -f "$dir/go.mod" ]; then
+              echo "Building example in $dir"
+              (cd "$dir" && go build ./...)
+            fi
+          done
 
       - name: Generate Checksums
         run: |
