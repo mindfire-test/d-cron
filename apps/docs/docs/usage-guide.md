@@ -54,6 +54,7 @@ func createScheduler(db *sql.DB) (*dcron.Scheduler, error) {
 | `WithNamespace(name)` | Sets the advisory lock key namespace. Prevents lock collisions between independent applications sharing a database. | `"default"` |
 | `WithPollInterval(duration)` | Polling frequency used by standby replicas to attempt lock acquisition (with ±20% jitter). | `5s` |
 | `WithDrainTimeout(duration)` | Grace period allowed during `Stop()` for active in-flight jobs to complete. | `30s` |
+| `WithDrainBeforeRelease()` | Drains running jobs before releasing the advisory lock on shutdown to prevent cross-replica overlap. | Disabled (release first, then drain) |
 | `WithStartupTimeout(duration)` | Maximum timeout bounding startup DB operations (lock connection, migrations, keepalives). | `15s` |
 | `WithPollTimeout(duration)` | Per-attempt timeout for advisory lock probe queries (`TryLock`, `HoldsLock`). | `5s` |
 | `WithDBTimeout(duration)` | Per-operation timeout for history store and admin mutation database queries. | `5s` |
@@ -93,7 +94,16 @@ err = scheduler.Add("cache-warmer", "@every 15m", func(ctx context.Context) erro
 err = scheduler.Add("ny-morning-report", "CRON_TZ=America/New_York 0 9 * * 1-5", func(ctx context.Context) error {
 	return sendMorningReport(ctx)
 })
+
+// 5. At-most-once non-idempotent job (disables default 5-attempt retry)
+err = scheduler.Add("send-charge-webhook", "@every 1h", func(ctx context.Context) error {
+	return dispatchCharge(ctx)
+}, dcron.WithNoRetry())
 ```
+
+:::info Default Retry Policy
+By default, jobs are configured with 5 execution attempts with exponential backoff and a 30-minute per-attempt timeout. For jobs with non-idempotent side effects (e.g. charging a card, sending an SMS), pass `dcron.WithNoRetry()` to execute at most once.
+:::
 
 ## Working with Job Context
 
@@ -141,6 +151,12 @@ if err := scheduler.Stop(drainCtx); err != nil {
 }
 ```
 
+:::tip Drain Before Release vs. Failover Latency
+By default, `Stop()` releases the leadership advisory lock immediately and then drains active jobs for up to `WithDrainTimeout()`. This allows standby replicas to become leader instantly without waiting for the terminating replica's running jobs to finish.
+
+However, if jobs have non-database external side effects that must never run concurrently across replicas, configure `dcron.WithDrainBeforeRelease()`. With this option enabled, `Stop()` waits for active jobs to finish draining before unlocking the advisory lock, guaranteeing zero cross-replica concurrency at the cost of delaying standby promotion until draining completes (ensure your Kubernetes `terminationGracePeriodSeconds` accommodates this window).
+:::
+
 ## Runtime Job Controls & Durability
 
 d-cron allows dynamically inspecting, pausing, resuming, adding, and removing jobs while the scheduler is running:
@@ -169,9 +185,10 @@ err = scheduler.HealthCheck(ctx)
 
 ### Cluster-Wide Admin Mutations & Failover
 - **Durable Persistence:** All mutations (`Pause`, `Resume`, `Remove`, `AddDynamic`) are saved to PostgreSQL (`job_state` table) before in-memory state is altered. If the database write fails, an error is returned and no in-memory state is changed.
-- **Failover Reconciliation:** When a standby replica acquires the advisory lock and is promoted to leader, it queries `job_state` and reconciles all job definitions: paused jobs remain paused without firing, removed jobs are unmarshaled from memory, and dynamic jobs are restored into the scheduling queue.
+- **Failover Reconciliation:** When a standby replica acquires the advisory lock and is promoted to leader, it queries `job_state` and reconciles all job definitions: paused jobs remain paused without firing, and dynamic jobs are restored into the scheduling queue.
+- **Static vs. Dynamic Reconciliation:** Jobs registered statically in code via `Add()` record `origin = 'static'`. If an operator removed a static job via the admin API during an incident, redeploying the application with `Add()` in code clears the removed state and restores the job upon startup (static code registration is authoritative over historical deletions). Conversely, dynamic jobs created via `AddDynamic()` record `origin = 'dynamic'` and remain deleted when removed.
 - **Dynamic Job Handlers:** To ensure dynamic jobs can execute when leadership fails over to another node, register named handler functions using `dcron.WithJobHandler("report-export", fn)` or `scheduler.RegisterHandler("report-export", fn)`.
-- **Standby Mutation Proxying:** If an admin mutation (`POST /dcron/admin/jobs/{name}/pause`, `resume`, `DELETE`, etc.) hits a standby node, the standby automatically proxies the request to the active leader if `WithLeaderForwardURL("http://dcron-leader:8080")` is configured; otherwise, it returns `409 Conflict` (`dcron: not leader`).
+- **Standby Mutation Proxying & Loop Guard:** If an admin mutation hits a standby node, the standby automatically proxies the request to the active leader if `WithLeaderForwardURL` is configured (rejecting circular loops with HTTP `503 Service Unavailable`); otherwise, it returns `409 Conflict` (`dcron: not leader`).
 
 
 ## Running Included Examples

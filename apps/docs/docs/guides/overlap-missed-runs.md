@@ -76,8 +76,21 @@ scheduler.Add("heavy-backup", "@since_success 15m", backupHandler,
 ```
 
 Unlike fixed cron schedules (such as `*/15 * * * *`), `WithSinceLastSuccess`:
-- Calculates the next fire time relative to `finished_at` of the previous successful run.
+- Calculates the next fire time relative to `finished_at` of the previous run.
 - Ensures a long-running batch job taking 45 minutes does not trigger immediately upon finishing; it rests for the full 15-minute interval before running again.
+
+### Failure & Rescheduling Semantics
+
+By default, when a `WithSinceLastSuccess` job terminates unsuccessfully (after all retry attempts are exhausted), `d-cron` reschedules the next execution relative to completion time (`now + interval`). This ensures transient network or third-party outages do not permanently kill recurring jobs.
+
+If you specifically require execution to halt permanently upon terminal failure, pass `dcron.WithStopOnFailure()`:
+
+```go
+scheduler.Add("fragile-import", "@since_success 30m", importHandler,
+    dcron.WithSinceLastSuccess(30 * time.Minute),
+    dcron.WithStopOnFailure(), // Halts further scheduling if execution terminates unsuccessfully
+)
+```
 
 ## Overlap Handling During Retries
 

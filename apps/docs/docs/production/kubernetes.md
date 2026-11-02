@@ -67,7 +67,15 @@ spec:
             preStop:
               exec:
                 command: ["/bin/sleep", "5"]
+      # Ensure terminationGracePeriodSeconds exceeds your scheduler's WithDrainTimeout
+      terminationGracePeriodSeconds: 60
 ```
+
+:::tip Drain Before Release Trade-off
+By default, `Stop()` immediately releases the leadership advisory lock so a standby replica can take over without failover latency, and then drains running executions.
+
+If your jobs have non-database side effects where cross-replica overlap during rolling deployments is unacceptable, configure `dcron.WithDrainBeforeRelease()`. Ensure your `terminationGracePeriodSeconds` (e.g. 60s) is larger than `WithDrainTimeout()` (e.g. 30s) + `preStop` delay (5s) so Kubernetes does not send SIGKILL while draining is in progress.
+:::
 
 ## 2. Health & Readiness Probes
 
