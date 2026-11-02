@@ -3,6 +3,8 @@ package dcron_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -457,4 +459,152 @@ func TestScheduler_WithOpTimeout(t *testing.T) {
 	if s == nil {
 		t.Fatal("expected non-nil scheduler with WithOpTimeout")
 	}
+}
+
+// TestScheduler_WithDrainBeforeRelease verifies that WithDrainBeforeRelease drains jobs
+// before releasing the coordination lock backend.
+func TestScheduler_WithDrainBeforeRelease(t *testing.T) {
+	t.Parallel()
+
+	b := newSchedBackend()
+	s := testScheduler(b, dcron.WithDrainBeforeRelease(), dcron.WithDrainTimeout(2*time.Second))
+
+	jobStarted := make(chan struct{})
+	unblockJob := make(chan struct{})
+	var releasedBeforeJobDone atomic.Bool
+
+	err := s.Add("long-running", "@every 10ms", func(_ context.Context) error {
+		select {
+		case <-jobStarted:
+		default:
+			close(jobStarted)
+		}
+		<-unblockJob
+		b.mu.Lock()
+		if !b.held {
+			releasedBeforeJobDone.Store(true)
+		}
+		b.mu.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	<-jobStarted
+
+	// Trigger Stop in background while job is running
+	stopDone := make(chan struct{})
+	go func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = s.Stop(stopCtx)
+		close(stopDone)
+	}()
+
+	// Allow brief moment for Stop to proceed into draining
+	time.Sleep(50 * time.Millisecond)
+
+	// Unblock the running job
+	close(unblockJob)
+	<-stopDone
+
+	if releasedBeforeJobDone.Load() {
+		t.Fatal("lock was released before running job finished draining; WithDrainBeforeRelease must hold lock until drained")
+	}
+}
+
+// TestScheduler_AdminForwardLoopDetected verifies that a standby receiving a request
+// with X-DCron-Forwarded: 1 rejects it with HTTP 503 instead of looping.
+func TestScheduler_AdminForwardLoopDetected(t *testing.T) {
+	t.Parallel()
+
+	b := newSchedBackend()
+	b.held = true // simulate another instance holds the lock
+	s := testScheduler(b, dcron.WithLeaderForwardURL("http://127.0.0.1:8080"))
+
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = s.Stop(ctx)
+	}()
+
+	waitFor(t, func() bool { return s.Leadership() == dcron.LeadershipStandby }, "standby state")
+
+	handler := dcron.AdminHandler(nil, s)
+
+	req := httptest.NewRequest(http.MethodPost, "/jobs/test-job/pause", nil)
+	req.Header.Set("X-DCron-Forwarded", "1")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d; want %d (ServiceUnavailable on forward loop)", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+// TestScheduler_ZombieJob_HoldsBusyUntilExit verifies that an uncooperative job that times out
+// keeps its busy mutex held until the underlying function goroutine exits, preventing
+// concurrent execution on the next tick.
+func TestScheduler_ZombieJob_HoldsBusyUntilExit(t *testing.T) {
+	t.Parallel()
+
+	b := newSchedBackend()
+	s := testScheduler(b)
+
+	unblockZombie := make(chan struct{})
+	var concurrentRuns atomic.Int32
+	var maxConcurrent atomic.Int32
+	var runs atomic.Int32
+
+	err := s.Add("uncooperative-job", "@every 5ms", func(ctx context.Context) error {
+		cur := concurrentRuns.Add(1)
+		runs.Add(1)
+		defer concurrentRuns.Add(-1)
+
+		for {
+			old := maxConcurrent.Load()
+			if cur <= old || maxConcurrent.CompareAndSwap(old, cur) {
+				break
+			}
+		}
+
+		if runs.Load() == 1 {
+			// First run ignores ctx and blocks on unblockZombie
+			<-unblockZombie
+			return nil
+		}
+		return nil
+	}, dcron.WithNoOverlap(), dcron.WithTimeout(15*time.Millisecond), dcron.WithNoRetry())
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Wait long enough for first run to timeout (15ms) and multiple ticks (every 5ms) to arrive
+	time.Sleep(80 * time.Millisecond)
+
+	// Verify that while the zombie is still running, no second concurrent run was allowed
+	if max := maxConcurrent.Load(); max > 1 {
+		close(unblockZombie)
+		t.Fatalf("detected %d concurrent executions; WithNoOverlap must prevent concurrent runs even during timeout zombie", max)
+	}
+
+	// Release the zombie
+	close(unblockZombie)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = s.Stop(ctx)
 }

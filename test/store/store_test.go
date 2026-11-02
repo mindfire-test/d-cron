@@ -94,7 +94,7 @@ func TestMigrationDDLIsIdempotentAndQualified(t *testing.T) {
 
 	jobStateTable := stmts[3]
 	for _, col := range []string{
-		"namespace", "job_name", "paused", "removed", "spec", "updated_at",
+		"namespace", "job_name", "paused", "removed", "spec", "origin", "updated_at",
 	} {
 		if !strings.Contains(jobStateTable, col) {
 			t.Errorf("job_state table lacks column %q:\n%s", col, jobStateTable)

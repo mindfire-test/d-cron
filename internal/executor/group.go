@@ -29,22 +29,37 @@ func NewGroup() *Group {
 // goroutine so the scheduler can update job status, fire hooks, and record
 // metrics without coupling the executor to those concerns.
 func (g *Group) Go(ctx context.Context, name string, fn Func, retry Retry, log *slog.Logger, onComplete ...func(Result)) {
+	var cb func(Result)
+	if len(onComplete) > 0 {
+		cb = onComplete[0]
+	}
+	g.GoWithExit(ctx, name, fn, retry, log, cb, nil)
+}
+
+// GoWithExit executes fn under ctx with retries. onComplete is invoked when Run finishes,
+// and onExit is invoked after all underlying invocations of fn (including any uncooperative
+// goroutines that exceeded their per-attempt timeout) have fully exited.
+func (g *Group) GoWithExit(ctx context.Context, name string, fn Func, retry Retry, log *slog.Logger, onComplete func(Result), onExit func()) {
 	g.wg.Add(1)
 	go func() {
+		var activeWg sync.WaitGroup
+		var calledOnce sync.Once
 		fnCalled := make(chan struct{})
-		fnDone := make(chan struct{})
-		var calledOnce, doneOnce sync.Once
 
 		wrappedFn := func(ctx context.Context) error {
 			calledOnce.Do(func() { close(fnCalled) })
-			defer doneOnce.Do(func() { close(fnDone) })
+			activeWg.Add(1)
+			defer activeWg.Done()
 			return fn(ctx)
 		}
 		defer func() {
 			select {
 			case <-fnCalled:
-				<-fnDone
+				activeWg.Wait()
 			default:
+			}
+			if onExit != nil {
+				onExit()
 			}
 			g.wg.Done()
 		}()
@@ -63,10 +78,8 @@ func (g *Group) Go(ctx context.Context, name string, fn Func, retry Retry, log *
 			}
 			log.Error("executor: job failed", attrs...)
 		}
-		for _, cb := range onComplete {
-			if cb != nil {
-				cb(res)
-			}
+		if onComplete != nil {
+			onComplete(res)
 		}
 	}()
 }

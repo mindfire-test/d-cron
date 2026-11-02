@@ -47,10 +47,6 @@ func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 
 	// GET /status
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
-		if auth != nil && !auth(r) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
 		type jobJSON struct {
 			Name        string    `json:"name"`
 			Spec        string    `json:"spec"`
@@ -93,11 +89,11 @@ func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 
 	// POST /jobs (AddDynamic)
 	mux.HandleFunc("POST /jobs", func(w http.ResponseWriter, r *http.Request) {
-		if auth != nil && !auth(r) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
 		if s.started && s.Leadership() == LeadershipStandby {
+			if r.Header.Get("X-DCron-Forwarded") != "" {
+				http.Error(w, "standby received forwarded request: leader loop detected", http.StatusServiceUnavailable)
+				return
+			}
 			if s.opts.leaderForwardURL != "" {
 				forwardToLeader(w, r, s.opts.leaderForwardURL)
 				return
@@ -141,11 +137,11 @@ func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 	})
 
 	handleMutation := func(w http.ResponseWriter, r *http.Request, suffix string, mutate func(string) error) {
-		if auth != nil && !auth(r) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
 		if s.started && s.Leadership() == LeadershipStandby {
+			if r.Header.Get("X-DCron-Forwarded") != "" {
+				http.Error(w, "standby received forwarded request: leader loop detected", http.StatusServiceUnavailable)
+				return
+			}
 			if s.opts.leaderForwardURL != "" {
 				forwardToLeader(w, r, s.opts.leaderForwardURL)
 				return
@@ -181,35 +177,18 @@ func AdminHandler(auth AuthFunc, s *Scheduler) http.Handler {
 
 	// DELETE /jobs/{name}
 	mux.HandleFunc("DELETE /jobs/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if auth != nil && !auth(r) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		if s.started && s.Leadership() == LeadershipStandby {
-			if s.opts.leaderForwardURL != "" {
-				forwardToLeader(w, r, s.opts.leaderForwardURL)
-				return
-			}
-			http.Error(w, ErrNotLeader.Error(), http.StatusConflict)
-			return
-		}
-		name := jobNameFromPath(r.URL.Path, "")
-		name = strings.TrimPrefix(name, "/jobs/")
-		if err := s.Remove(name); err != nil {
-			if errors.Is(err, ErrNotLeader) {
-				http.Error(w, err.Error(), http.StatusConflict)
-				return
-			}
-			if errors.Is(err, ErrJobNotFound) {
-				http.Error(w, err.Error(), http.StatusNotFound)
-				return
-			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+		handleMutation(w, r, "", s.Remove)
 	})
 
+	if auth != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !auth(r) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			mux.ServeHTTP(w, r)
+		})
+	}
 	return mux
 }
 
@@ -229,6 +208,7 @@ func forwardToLeader(w http.ResponseWriter, r *http.Request, leaderURL string) {
 			proxyReq.Header.Add(k, v)
 		}
 	}
+	proxyReq.Header.Set("X-DCron-Forwarded", "1")
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(proxyReq)
 	if err != nil {

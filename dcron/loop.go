@@ -137,7 +137,7 @@ func (s *Scheduler) onPromotion(electorEpoch int64) {
 
 	if epoch > 0 {
 		s.reconcileJobStates(epoch)
-		s.catchUpMissedRuns(epoch)
+		go s.catchUpMissedRuns(epoch)
 	}
 
 	s.mu.Lock()
@@ -165,15 +165,14 @@ func (s *Scheduler) catchUpMissedRuns(epoch int64) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(s.loopCtx, s.opts.dbTimeout)
-	defer cancel()
-
 	now := time.Now().In(s.opts.location)
 	for _, j := range jobs {
-		if ctx.Err() != nil {
+		if s.loopCtx.Err() != nil {
 			return
 		}
-		recent, err := s.store.Recent(ctx, s.opts.namespace, j.name, 1)
+		queryCtx, cancel := context.WithTimeout(s.loopCtx, s.opts.dbTimeout)
+		recent, err := s.store.Recent(queryCtx, s.opts.namespace, j.name, 1)
+		cancel()
 		if err != nil {
 			s.opts.logger.Warn("dcron: failed to query recent executions for catchup", "job", j.name, "err", err)
 			continue
@@ -407,6 +406,9 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 			cancel()
 			if err != nil {
 				s.opts.logger.Warn("dcron: history record failed", "job", j.name, "err", err)
+				if errors.Is(err, store.ErrFenced) {
+					s.opts.rec.FencedWrite()
+				}
 				if hr, ok := s.opts.rec.(metrics.HistoryRecorder); ok {
 					hr.RecordFailure(j.name)
 				}
@@ -437,8 +439,6 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 		if res.Error != nil {
 			j.lastError = res.Error.Error()
 		}
-		hasQueued := j.queuedRun
-		j.queuedRun = false
 		j.statusMu.Unlock()
 
 		s.opts.rec.JobFinished(j.name, outcomeToMetric(res.Outcome), res.Duration, res.Outcome == executor.OutcomeOK)
@@ -465,15 +465,26 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 		}
 		s.fireHooks(res)
 
-		if _, isSinceSuccess := j.sched.(clock.SinceSuccessSchedule); isSinceSuccess && res.Outcome == executor.OutcomeOK {
-			s.mu.Lock()
-			if s.started && s.leader.IsLeader() {
-				next := j.sched.Next(time.Now().In(s.opts.location))
-				j.nextRun = next
-				heap.Push(s.clk, &clock.Job{Name: j.name, FireAt: next, Sched: j.sched})
+		if _, isSinceSuccess := j.sched.(clock.SinceSuccessSchedule); isSinceSuccess {
+			if j.stopOnFailure && res.Outcome != executor.OutcomeOK {
+				s.opts.logger.Warn("dcron: since-last-success job failed and will not be rescheduled (stop-on-failure enabled)", "job", j.name, "outcome", res.Outcome.String(), "err", res.Error)
+			} else {
+				s.mu.Lock()
+				if s.started && s.leader.IsLeader() {
+					next := j.sched.Next(time.Now().In(s.opts.location))
+					j.nextRun = next
+					heap.Push(s.clk, &clock.Job{Name: j.name, FireAt: next, Sched: j.sched})
+				}
+				s.mu.Unlock()
 			}
-			s.mu.Unlock()
 		}
+	}
+
+	onExit := func() {
+		j.statusMu.Lock()
+		hasQueued := j.queuedRun
+		j.queuedRun = false
+		j.statusMu.Unlock()
 
 		if !hasQueued {
 			if !j.overlap {
@@ -497,7 +508,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 		}(capturedTerm)
 	}
 
-	s.group.Go(spanCtx, j.name, executor.Func(fn), j.retry, s.opts.logger, onComplete)
+	s.group.GoWithExit(spanCtx, j.name, executor.Func(fn), j.retry, s.opts.logger, onComplete, onExit)
 }
 
 func historyStatus(o executor.Outcome) store.Status {

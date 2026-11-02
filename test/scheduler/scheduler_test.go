@@ -325,6 +325,9 @@ func TestSchedulerNoOverlapWithRetry(t *testing.T) {
 
 	select {
 	case <-successCh:
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = s.Stop(stopCtx)
+		stopCancel()
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for job to succeed across retries")
 	}

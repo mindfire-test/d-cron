@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,6 +101,10 @@ func New(db *sql.DB, opts ...Option) (*Scheduler, error) {
 			"schema", cfg.schema, "retention", cfg.retention.String())
 	}
 
+	if cfg.leaderForwardURL != "" && !strings.HasPrefix(strings.ToLower(cfg.leaderForwardURL), "https://") {
+		cfg.logger.Warn("dcron: leader forward URL does not use https scheme; bearer tokens may be transmitted in clear text", "url", cfg.leaderForwardURL)
+	}
+
 	cfg.logger.Info("dcron: scheduler constructed",
 		"namespace", cfg.namespace, "key", elector.LockKey(cfg.namespace), "instance", cfg.instance)
 	return newWithBackend(elector.NewStdBackend(conn), db, cfg, hist), nil
@@ -156,7 +161,20 @@ func (s *Scheduler) Add(name, spec string, fn JobFunc, opts ...JobOption) error 
 	if s.started {
 		return ErrAlreadyStarted
 	}
-	return s.registerJobLocked(name, spec, fn, opts...)
+	if err := s.registerJobLocked(name, spec, fn, opts...); err != nil {
+		return err
+	}
+	if s.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), s.opts.dbTimeout)
+		defer cancel()
+		_ = s.store.SaveJobState(ctx, store.JobState{
+			Namespace: s.opts.namespace,
+			JobName:   name,
+			Removed:   false,
+			Origin:    "static",
+		})
+	}
+	return nil
 }
 
 func (s *Scheduler) registerJobLocked(name, spec string, fn JobFunc, opts ...JobOption) error {
@@ -261,10 +279,6 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 
 	var firstErr error
 
-	if err := s.leader.Release(ctx); err != nil && firstErr == nil {
-		firstErr = err
-	}
-
 	drainCtx := ctx
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline && s.opts.drainTimeout > 0 {
 		var cancelDrain context.CancelFunc
@@ -284,10 +298,25 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 		}
 	}()
 
-	if err := s.group.Wait(drainCtx); err != nil && firstErr == nil {
-		firstErr = err
+	if s.opts.drainBeforeRelease {
+		if err := s.group.Wait(drainCtx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		close(drainDone)
+
+		if err := s.leader.Release(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	} else {
+		if err := s.leader.Release(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+
+		if err := s.group.Wait(drainCtx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		close(drainDone)
 	}
-	close(drainDone)
 
 	s.mu.Lock()
 	s.termCancel()
@@ -359,10 +388,16 @@ func (s *Scheduler) Remove(name string) error {
 	if s.store != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), s.opts.dbTimeout)
 		defer cancel()
+		origin := "dynamic"
+		st, _ := s.store.GetJobState(ctx, s.opts.namespace, name)
+		if st != nil && st.Origin != "" {
+			origin = st.Origin
+		}
 		err := s.store.SaveJobState(ctx, store.JobState{
 			Namespace: s.opts.namespace,
 			JobName:   name,
 			Removed:   true,
+			Origin:    origin,
 		})
 		if err != nil {
 			return fmt.Errorf("dcron: remove: %w", err)
@@ -402,6 +437,7 @@ func (s *Scheduler) AddDynamic(name, spec string, fn JobFunc, opts ...JobOption)
 			Paused:    false,
 			Removed:   false,
 			Spec:      spec,
+			Origin:    "dynamic",
 		})
 		if err != nil {
 			return fmt.Errorf("dcron: add dynamic save: %w", err)
@@ -467,8 +503,12 @@ func (s *Scheduler) reconcileJobStates(epoch int64) {
 		}
 
 		if st.Removed {
+			if st.Origin == "static" {
+				s.opts.logger.Info("dcron: keeping static job registered in code despite removed row", "job", name)
+				continue
+			}
 			delete(s.jobs, name)
-			s.opts.logger.Info("dcron: reconciled removed job on promotion", "job", name)
+			s.opts.logger.Info("dcron: reconciled removed dynamic job on promotion", "job", name)
 			continue
 		}
 

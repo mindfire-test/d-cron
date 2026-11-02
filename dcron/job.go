@@ -43,6 +43,7 @@ type Job struct {
 	maxLookback   time.Duration
 	maxCatchUp    int
 	busy          sync.Mutex
+	stopOnFailure bool
 
 	statusMu     sync.Mutex
 	queuedRun    bool
@@ -138,5 +139,13 @@ func WithSinceLastSuccess(d time.Duration) JobOption {
 	return func(j *Job) {
 		j.sched = clock.SinceSuccessSchedule{Interval: d}
 		j.spec = "@since_success " + d.String()
+	}
+}
+
+// WithStopOnFailure configures a WithSinceLastSuccess job to halt rescheduling further
+// runs if an execution terminates unsuccessfully.
+func WithStopOnFailure() JobOption {
+	return func(j *Job) {
+		j.stopOnFailure = true
 	}
 }

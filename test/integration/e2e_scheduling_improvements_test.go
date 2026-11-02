@@ -113,7 +113,7 @@ func TestE2ESinceLastSuccess_FailedRunDoesNotReschedule(t *testing.T) {
 			close(jobExecuted)
 		}
 		return errors.New("simulated failure")
-	}, dcron.WithSinceLastSuccess(50*time.Millisecond), dcron.WithNoRetry())
+	}, dcron.WithSinceLastSuccess(50*time.Millisecond), dcron.WithNoRetry(), dcron.WithStopOnFailure())
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -133,11 +133,67 @@ func TestE2ESinceLastSuccess_FailedRunDoesNotReschedule(t *testing.T) {
 		t.Fatal("timed out waiting for initial job execution")
 	}
 
-	// Wait 250ms (well past the 50ms interval) to verify no subsequent run is scheduled after failure
+	// Wait 250ms (well past the 50ms interval) to verify no subsequent run is scheduled after failure when stop-on-failure is enabled
 	time.Sleep(250 * time.Millisecond)
 
 	if got := executions.Load(); got != 1 {
-		t.Fatalf("job ran %d times after failure; want exactly 1 (failed run must not reschedule next success run)", got)
+		t.Fatalf("job ran %d times after failure; want exactly 1 when WithStopOnFailure() is configured", got)
+	}
+}
+
+func TestE2ESinceLastSuccess_FailedRunReschedulesByDefault(t *testing.T) {
+	if testDB == nil {
+		t.Skip("PostgreSQL integration pool not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := mustOpen(t)
+	namespace := "e2e-since-success-resched"
+
+	s, err := dcron.New(
+		db,
+		dcron.WithNamespace(namespace),
+		dcron.WithHistory(time.Hour),
+		dcron.WithSessionStableConnection(),
+		dcron.WithPollInterval(20*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	var executions atomic.Int64
+	secondExecuted := make(chan struct{})
+
+	err = s.Add("failing-rescheduled-job", "@every 1m", func(_ context.Context) error {
+		count := executions.Add(1)
+		if count >= 2 {
+			select {
+			case <-secondExecuted:
+			default:
+				close(secondExecuted)
+			}
+		}
+		return errors.New("transient failure")
+	}, dcron.WithSinceLastSuccess(50*time.Millisecond), dcron.WithNoRetry())
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stopCancel()
+		_ = s.Stop(stopCtx)
+	}()
+
+	select {
+	case <-secondExecuted:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for since-last-success job to reschedule and run second time after failure; executions = %d", executions.Load())
 	}
 }
 

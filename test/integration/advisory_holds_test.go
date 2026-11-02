@@ -6,7 +6,9 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mindfire-test/d-cron/dcron"
 	"github.com/mindfire-test/d-cron/internal/elector"
@@ -179,5 +181,124 @@ func BenchmarkHoldsLock(b *testing.B) {
 		if err != nil || !holds {
 			b.Fatalf("HoldsLock: holds=%v, err=%v", holds, err)
 		}
+	}
+}
+
+// TestE2E_DrainBeforeRelease_PreventsCrossReplicaOverlap verifies that when WithDrainBeforeRelease()
+// is configured on the primary leader, shutting it down mid-job drains in-flight jobs before
+// releasing the advisory lock, preventing the newly promoted standby from executing concurrently.
+func TestE2E_DrainBeforeRelease_PreventsCrossReplicaOverlap(t *testing.T) {
+	if testDB == nil {
+		t.Skip("PostgreSQL integration pool not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := mustOpen(t)
+	const namespace = "it-drain-before-release"
+
+	var activeRuns atomic.Int32
+	var maxConcurrent atomic.Int32
+	jobStarted := make(chan struct{})
+	unblockJob := make(chan struct{})
+
+	// 1. Create Leader replica with WithDrainBeforeRelease
+	s1, err := dcron.New(
+		db,
+		dcron.WithNamespace(namespace),
+		dcron.WithSessionStableConnection(),
+		dcron.WithPollInterval(20*time.Millisecond),
+		dcron.WithDrainBeforeRelease(),
+		dcron.WithDrainTimeout(5*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("New s1: %v", err)
+	}
+
+	workFn := func(replica string) dcron.JobFunc {
+		return func(ctx context.Context) error {
+			cur := activeRuns.Add(1)
+			defer activeRuns.Add(-1)
+
+			for {
+				old := maxConcurrent.Load()
+				if cur <= old || maxConcurrent.CompareAndSwap(old, cur) {
+					break
+				}
+			}
+
+			if replica == "leader" {
+				select {
+				case <-jobStarted:
+				default:
+					close(jobStarted)
+				}
+				<-unblockJob
+			}
+			return nil
+		}
+	}
+
+	err = s1.Add("overlap-check-job", "@every 50ms", workFn("leader"), dcron.WithNoOverlap())
+	if err != nil {
+		t.Fatalf("s1.Add: %v", err)
+	}
+
+	if err := s1.Start(ctx); err != nil {
+		t.Fatalf("Start s1: %v", err)
+	}
+
+	// 2. Create Standby replica
+	s2, err := dcron.New(
+		db,
+		dcron.WithNamespace(namespace),
+		dcron.WithSessionStableConnection(),
+		dcron.WithPollInterval(20*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("New s2: %v", err)
+	}
+
+	err = s2.Add("overlap-check-job", "@every 50ms", workFn("standby"), dcron.WithNoOverlap())
+	if err != nil {
+		t.Fatalf("s2.Add: %v", err)
+	}
+
+	if err := s2.Start(ctx); err != nil {
+		t.Fatalf("Start s2: %v", err)
+	}
+	defer func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stopCancel()
+		_ = s2.Stop(stopCtx)
+	}()
+
+	// Wait until s1's job starts executing
+	select {
+	case <-jobStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for leader job to start")
+	}
+
+	// 3. Stop s1 while the job is still running
+	s1Stopped := make(chan struct{})
+	go func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 6*time.Second)
+		defer stopCancel()
+		_ = s1.Stop(stopCtx)
+		close(s1Stopped)
+	}()
+
+	// Wait 100ms to allow standby time to attempt acquisition if lock were prematurely released
+	time.Sleep(100 * time.Millisecond)
+
+	// Now unblock the leader's running job so drain finishes
+	close(unblockJob)
+	<-s1Stopped
+
+	// Verify that at no point did s1 and s2 execute the job concurrently
+	if max := maxConcurrent.Load(); max > 1 {
+		t.Fatalf("detected %d concurrent executions across replicas; WithDrainBeforeRelease must ensure max concurrent == 1", max)
 	}
 }
