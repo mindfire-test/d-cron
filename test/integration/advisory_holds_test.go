@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
-	"github.com/mindfire-test/d-cron/internal/elector"
+	"github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/internal/elector"
 )
 
 // TestAdvisoryHoldsLockRoundTrip pins the pg_locks ownership probe used by the

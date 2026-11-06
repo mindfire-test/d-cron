@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/internal/executor"
+	"github.com/mindfiredigital/d-cron/internal/executor"
 )
 
 func errSentinel(msg string) error { return errors.New(msg) }

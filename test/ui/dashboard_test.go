@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/ui"
+	"github.com/mindfiredigital/d-cron/ui"
 )
 
 func TestHandlerRendersOverviewAndJobs(t *testing.T) {

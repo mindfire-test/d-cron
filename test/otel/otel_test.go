@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/otel"
+	"github.com/mindfiredigital/d-cron/otel"
 )
 
 func TestNoopTracer(t *testing.T) {

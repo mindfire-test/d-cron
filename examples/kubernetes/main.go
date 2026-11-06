@@ -20,7 +20,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	dcron "github.com/mindfire-test/d-cron/dcron"
+	dcron "github.com/mindfiredigital/d-cron/dcron"
 )
 
 func main() {

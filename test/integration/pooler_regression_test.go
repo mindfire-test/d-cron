@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
-	"github.com/mindfire-test/d-cron/test/integration/testutil"
+	"github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/test/integration/testutil"
 )
 
 // TestPgBouncerTransactionPooling tests transaction-mode pooling behavior. It

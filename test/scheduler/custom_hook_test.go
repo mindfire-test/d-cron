@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/dcron"
 )
 
 // customHook proves that an external package can implement dcron.Hook

@@ -1,11 +1,11 @@
 # prometheus-adapter example
 
 Bridges d-cron's dependency-free `metrics.Recorder` seam to a real Prometheus
-registry using `client_golang` (issue #36 / FR-404).
+registry using `client_golang`.
 
 ## Why a separate Go module
 
-d-cron's core has **zero third-party dependencies** (NFR-401/402). This
+d-cron's core has **zero third-party dependencies**. This
 example needs `prometheus/client_golang`, so it carries its own `go.mod` with
 a `replace` directive back to the repository root. Building the library or the
 other examples never downloads Prometheus.

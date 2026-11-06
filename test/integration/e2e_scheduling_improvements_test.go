@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
-	"github.com/mindfire-test/d-cron/internal/store"
+	"github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/internal/store"
 )
 
 func TestE2ESinceLastSuccessScheduling(t *testing.T) {

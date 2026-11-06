@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/dcron"
 )
 
 func TestFence_ZeroEpochBypass(t *testing.T) {

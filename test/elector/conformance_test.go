@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mindfire-test/d-cron/internal/elector"
+	"github.com/mindfiredigital/d-cron/internal/elector"
 )
 
 // fakeBackendCoord is a trivial in-memory Backend for wiring a real *Elector in

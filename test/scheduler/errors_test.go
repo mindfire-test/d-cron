@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/dcron"
 )
 
 // TestAddReturnsTypedErrors asserts that Add returns typed, context-carrying

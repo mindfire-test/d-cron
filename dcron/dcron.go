@@ -12,10 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mindfire-test/d-cron/internal/clock"
-	"github.com/mindfire-test/d-cron/internal/elector"
-	"github.com/mindfire-test/d-cron/internal/executor"
-	"github.com/mindfire-test/d-cron/internal/store"
+	"github.com/mindfiredigital/d-cron/internal/clock"
+	"github.com/mindfiredigital/d-cron/internal/elector"
+	"github.com/mindfiredigital/d-cron/internal/executor"
+	"github.com/mindfiredigital/d-cron/internal/store"
 )
 
 // Scheduler is a distributed cron scheduler.

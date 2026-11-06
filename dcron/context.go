@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/mindfire-test/d-cron/internal/store"
+	"github.com/mindfiredigital/d-cron/internal/store"
 )
 
 type (

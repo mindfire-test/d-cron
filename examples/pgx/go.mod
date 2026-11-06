@@ -1,10 +1,10 @@
-module github.com/mindfire-test/d-cron/examples/pgx
+module github.com/mindfiredigital/d-cron/examples/pgx
 
 go 1.23
 
 require (
 	github.com/jackc/pgx/v5 v5.6.0
-	github.com/mindfire-test/d-cron v0.0.0
+	github.com/mindfiredigital/d-cron v0.0.0
 )
 
 require (
@@ -16,4 +16,4 @@ require (
 	golang.org/x/text v0.16.0 // indirect
 )
 
-replace github.com/mindfire-test/d-cron => ../../
+replace github.com/mindfiredigital/d-cron => ../../

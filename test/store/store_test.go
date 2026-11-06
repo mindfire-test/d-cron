@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mindfire-test/d-cron/internal/elector"
-	"github.com/mindfire-test/d-cron/internal/store"
+	"github.com/mindfiredigital/d-cron/internal/elector"
+	"github.com/mindfiredigital/d-cron/internal/store"
 )
 
 type storeFakeDriver struct{}

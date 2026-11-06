@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/mindfire-test/d-cron/internal/executor"
+	"github.com/mindfiredigital/d-cron/internal/executor"
 )
 
 var (

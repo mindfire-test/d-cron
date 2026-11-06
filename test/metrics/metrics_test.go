@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mindfire-test/d-cron/metrics"
+	"github.com/mindfiredigital/d-cron/metrics"
 )
 
 // TestCoreDoesNotLinkMetricsSDK enforces the core boundary: the scheduler core

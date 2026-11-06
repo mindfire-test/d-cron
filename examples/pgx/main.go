@@ -19,7 +19,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	dcron "github.com/mindfire-test/d-cron/dcron"
+	dcron "github.com/mindfiredigital/d-cron/dcron"
 )
 
 func main() {

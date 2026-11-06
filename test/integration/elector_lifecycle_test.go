@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	dcron "github.com/mindfire-test/d-cron/dcron"
+	dcron "github.com/mindfiredigital/d-cron/dcron"
 )
 
 // TestGates_RefusesUnsafeStart covers two #28 acceptance points that need no

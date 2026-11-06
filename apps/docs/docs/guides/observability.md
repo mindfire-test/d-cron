@@ -10,7 +10,7 @@ sidebar_label: Observability & Dashboard
 
 ## 1. Embedded Web Dashboard UI
 
-The web dashboard is completely self-contained in `github.com/mindfire-test/d-cron/ui` with zero external CDN dependencies, making it safe for air-gapped production environments.
+The web dashboard is completely self-contained in `github.com/mindfiredigital/d-cron/ui` with zero external CDN dependencies, making it safe for air-gapped production environments.
 
 Mount the dashboard handler on any standard Go HTTP router using `ui.Handler`:
 
@@ -24,8 +24,8 @@ import (
 	"net/http"
 
 	_ "github.com/lib/pq"
-	"github.com/mindfire-test/d-cron/dcron"
-	"github.com/mindfire-test/d-cron/ui"
+	"github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/ui"
 )
 
 func main() {
@@ -120,7 +120,7 @@ curl -X DELETE -H "Authorization: Bearer secret-token" \
 
 ## 3. Prometheus Metrics
 
-`d-cron` defines a pluggable `metrics.Recorder` interface (`github.com/mindfire-test/d-cron/metrics`). Standard metric names are defined as constants so custom Prometheus exporters share a stable contract:
+`d-cron` defines a pluggable `metrics.Recorder` interface (`github.com/mindfiredigital/d-cron/metrics`). Standard metric names are defined as constants so custom Prometheus exporters share a stable contract:
 
 ### Standard Metric Keys
 

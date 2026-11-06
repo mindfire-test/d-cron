@@ -5,7 +5,7 @@ package testutil_test
 import (
 	"testing"
 
-	"github.com/mindfire-test/d-cron/test/integration/testutil"
+	"github.com/mindfiredigital/d-cron/test/integration/testutil"
 )
 
 func TestNewPostgres_HelperInterface(t *testing.T) {

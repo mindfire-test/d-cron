@@ -21,9 +21,9 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	dcron "github.com/mindfire-test/d-cron/dcron"
-	"github.com/mindfire-test/d-cron/metrics"
-	"github.com/mindfire-test/d-cron/ui"
+	dcron "github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/metrics"
+	"github.com/mindfiredigital/d-cron/ui"
 )
 
 type promRecorder struct {

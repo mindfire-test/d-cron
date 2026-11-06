@@ -44,7 +44,7 @@ cron only         cron (this)      + cron            cluster       engine
 ### Installation
 
 ```sh
-go get github.com/mindfire-test/d-cron
+go get github.com/mindfiredigital/d-cron
 ```
 
 ### Usage Example
@@ -57,7 +57,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/dcron"
 	_ "github.com/lib/pq" // register the Postgres driver
 )
 
@@ -69,9 +69,9 @@ func main() {
 	defer db.Close()
 
 	// Initialize d-cron. WithNamespace scopes the lock. The session-stability
-	// assertion (SDS §3.4, issue #12) is mandatory: a transaction-mode pooler
-	// corrupts advisory-lock semantics, so d-cron refuses to start without
-	// WithSessionStableConnection() or a dedicated lock connection.
+	// assertion is mandatory: a transaction-mode pooler corrupts advisory-lock semantics,
+	// so d-cron refuses to start without WithSessionStableConnection() or a dedicated
+	// lock connection.
 	scheduler, err := dcron.New(db,
 		dcron.WithNamespace("billing"),
 		dcron.WithPollInterval(3*time.Second),
@@ -102,7 +102,7 @@ func main() {
 	if err := scheduler.Start(rootCtx); err != nil {
 		log.Fatalf("Failed to start scheduler: %v", err)
 	}
-	// Stop must be BOUNDED (issue #22): passing context.Background() here would
+	// Stop must be bounded: passing context.Background() here would
 	// let a single stuck 30-minute job hang SIGTERM until the orchestrator
 	// SIGKILLs the pod. Give it the same 30s budget as WithDrainTimeout.
 	stopCtx, stopCancel := context.WithTimeout(rootCtx, 30*time.Second)
@@ -119,25 +119,25 @@ func main() {
 
 ## 4. Phase 2 — Observability
 
-Phase 2 adds opt-in observability without touching the Phase-1 guarantee that
-the core path creates **zero tables** (AC-09). Everything below is off unless
+Phase 2 adds opt-in observability without touching the core guarantee that
+the default path creates **zero tables**. Everything below is off unless
 you turn it on.
 
 ### Leadership, health, and introspection
 
 ```go
 // Three-valued leadership state — NOT a bool: "not leader" and "don't know"
-// are different answers, and a readiness probe needs to tell them apart (FR-109).
+// are different answers, and a readiness probe needs to tell them apart.
 switch sched.Leadership() {
 case dcron.LeadershipLeader:  // this replica holds the lock and runs the clock
 case dcron.LeadershipStandby: // polling for promotion
 case dcron.LeadershipUnknown: // before the first poll / after a DB error
 }
 
-// Kubernetes probes (FR-411): see examples/kubernetes for /healthz and /readyz.
+// Kubernetes probes: see examples/kubernetes for /healthz and /readyz.
 if err := sched.HealthCheck(ctx); err != nil { /* backend unreachable */ }
 
-// Point-in-time job snapshot for dashboards and diagnostics (FR-406).
+// Point-in-time job snapshot for dashboards and diagnostics.
 for _, j := range sched.Jobs() {
     fmt.Println(j.Name, j.Spec, j.NextRun, j.LastOutcome, j.LastDuration)
 }
@@ -146,7 +146,7 @@ for _, j := range sched.Jobs() {
 ### One-off jobs
 
 ```go
-// Fires exactly once at `at`, then is evicted from the heap (issue #33).
+// Fires exactly once at `at`, then is evicted from the heap.
 // Not persisted: re-register it on process restart.
 _ = sched.AddOnce("warm-cache", time.Now().Add(30*time.Second), func(ctx context.Context) error {
     return warmCache(ctx)
@@ -175,7 +175,7 @@ logged and never fails the job or the scheduling loop.
 
 ### Metrics (opt-in adapter)
 
-The core never links a metrics SDK (NFR-402) — enforced by
+The core never links a metrics SDK — enforced by
 `metrics.TestCoreDoesNotLinkMetricsSDK`. You supply a
 `metrics.Recorder` via `dcron.WithMetrics(rec)`; bridge it to your own
 registry using the exported metric keys:
@@ -212,18 +212,18 @@ increase(dcron_fenced_writes_total[5m]) > 0
 
 `dcron.WithHistory(retention)` enables durable execution history in schema
 `dcron` (**never** `public`; configurable via `dcron.WithSchema`). This is the
-one feature that creates tables — the "zero migrations" claim is Phase-1 only:
+one feature that creates tables — the "zero migrations" claim is default only:
 
 - Migration is idempotent (`IF NOT EXISTS`) DDL wrapped in a transaction,
   guarded by a **separate advisory lock** so N replicas starting at once do not
-  race (FR-504). It is safe to call from every replica at startup.
+  race. It is safe to call from every replica at startup.
 - Every execution writes one row with status
   `running|success|failed|panicked|skipped|timeout`, indexed on
   `(namespace, job_name, scheduled_at DESC)`.
 - Retention pruning runs on the leader as an internal job; history write
   failures are logged and never fail the job itself.
 - All queries are parameterised; the schema identifier is validated against an
-  allowlist (NFR-503).
+  allowlist.
 
 ### Embedded dashboard (opt-in mounting)
 
@@ -245,9 +245,8 @@ mux.Handle("/internal/dcron", ui.Handler(
 ```
 
 Server-rendered `html/template`, assets embedded via `embed.FS`, no CDN, no
-build step, works air-gapped (FR-407). Read-only in Phase 2 (NFR-502). It
-performs **no authentication**: mounting it behind your own auth middleware is
-your responsibility (FR-408).
+build step, works air-gapped. Read-only in Phase 2. It performs **no authentication**:
+mounting it behind your own auth middleware is your responsibility.
 
 ---
 
@@ -290,7 +289,7 @@ Session-level advisory locks are bound to a database session. Transaction-level 
 `d-cron` requires operators to pass an explicit assertion option or use a dedicated direct DSN:
 
 ```go
-// Session-stability options are Phase 1 (SDS §3.4) and not yet on the v0.x scaffolding.
+// Session-stability options:
 dcron.WithSessionStableConnection()      // Operator asserts direct connection or session-mode pooler
 dcron.WithDedicatedLockDSN(dsn)          // DCron opens its own dedicated direct connection
 ```

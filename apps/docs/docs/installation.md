@@ -22,17 +22,17 @@ This page covers system requirements, module installation, and database permissi
 Install d-cron into your Go project using standard Go modules:
 
 ```bash
-go get github.com/mindfire-test/d-cron@latest
+go get github.com/mindfiredigital/d-cron@latest
 ```
 
 All sub-packages (metrics exporter, OpenTelemetry tracing, and embedded web dashboard UI) are included in the same repository:
 
 ```go
 import (
-    "github.com/mindfire-test/d-cron/dcron"
-    "github.com/mindfire-test/d-cron/metrics"
-    "github.com/mindfire-test/d-cron/otel"
-    "github.com/mindfire-test/d-cron/ui"
+    "github.com/mindfiredigital/d-cron/dcron"
+    "github.com/mindfiredigital/d-cron/metrics"
+    "github.com/mindfiredigital/d-cron/otel"
+    "github.com/mindfiredigital/d-cron/ui"
 )
 ```
 

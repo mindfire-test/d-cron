@@ -28,13 +28,13 @@ We are committed to providing a welcoming and inclusive experience for everyone,
 
 ### Reporting Issues
 
-If you experience or witness unacceptable behavior, please report it by opening an issue in the [d-cron repository](https://github.com/mindfire-test/d-cron/issues). All reports will be reviewed and investigated promptly and fairly.
+If you experience or witness unacceptable behavior, please report it by opening an issue in the [d-cron repository](https://github.com/mindfiredigital/d-cron/issues). All reports will be reviewed and investigated promptly and fairly.
 
 ## Getting Started
 
 ### 1. Fork the Repository
 
-Fork the [d-cron repository](https://github.com/mindfire-test/d-cron) on GitHub.
+Fork the [d-cron repository](https://github.com/mindfiredigital/d-cron) on GitHub.
 
 ### 2. Clone Your Fork
 
@@ -65,7 +65,7 @@ Keep your fork up to date with the base repository:
 
 ```bash
 # Add the upstream remote (one-time setup)
-git remote add upstream https://github.com/mindfire-test/d-cron.git
+git remote add upstream https://github.com/mindfiredigital/d-cron.git
 
 # Sync with the latest main branch
 git checkout main
@@ -91,7 +91,7 @@ gofumpt -l -w .
 Imports must be organized with `gci`:
 
 ```bash
-gci write --skip-vendor -s standard -s default -s "prefix(github.com/mindfire-test/d-cron)" .
+gci write --skip-vendor -s standard -s default -s "prefix(github.com/mindfiredigital/d-cron)" .
 ```
 
 ### Linting

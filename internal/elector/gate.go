@@ -47,7 +47,7 @@ func SessionStableFromPIDs(p1, p2 int) bool {
 // ProbeSessionStable takes two pg_backend_pid() samples on q and reports
 // whether they are equal (session-stable).
 //
-// Note (SRS C-01): Runtime automatic pooler detection via ProbeSessionStable was
+// Note: Runtime automatic pooler detection via ProbeSessionStable was
 // retired from the standard scheduler startup path because transaction-mode poolers
 // (such as PgBouncer) frequently return the same backend PID across consecutive round-trips
 // on an idle pool, producing false negatives. The scheduler therefore requires operator assertion

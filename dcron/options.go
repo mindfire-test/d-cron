@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/mindfire-test/d-cron/metrics"
-	"github.com/mindfire-test/d-cron/otel"
+	"github.com/mindfiredigital/d-cron/metrics"
+	"github.com/mindfiredigital/d-cron/otel"
 )
 
 func newInstanceID() string {

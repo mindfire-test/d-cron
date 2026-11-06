@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/dcron"
 )
 
 func TestAdminHandler_StandbyForwarding_Success(t *testing.T) {

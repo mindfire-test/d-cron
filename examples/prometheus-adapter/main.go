@@ -22,8 +22,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	dcron "github.com/mindfire-test/d-cron/dcron"
-	"github.com/mindfire-test/d-cron/metrics"
+	dcron "github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/metrics"
 )
 
 type promRecorder struct {

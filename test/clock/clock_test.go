@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/internal/clock"
+	"github.com/mindfiredigital/d-cron/internal/clock"
 )
 
 func ts(y, mo, d, h, mi int) time.Time {

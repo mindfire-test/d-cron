@@ -10,7 +10,7 @@ Complete API reference for `d-cron` core packages: `dcron`, `executor`, `metrics
 
 ## Package `dcron`
 
-The primary package `github.com/mindfire-test/d-cron/dcron` contains the `Scheduler` type, constructor options, job registration methods, and fencing utilities.
+The primary package `github.com/mindfiredigital/d-cron/dcron` contains the `Scheduler` type, constructor options, job registration methods, and fencing utilities.
 
 ### `dcron.New`
 

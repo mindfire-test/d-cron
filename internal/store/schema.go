@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mindfire-test/d-cron/internal/elector"
+	"github.com/mindfiredigital/d-cron/internal/elector"
 )
 
 var schemaID = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)

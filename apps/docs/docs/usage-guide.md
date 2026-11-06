@@ -23,7 +23,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/dcron"
 	_ "github.com/lib/pq"
 )
 

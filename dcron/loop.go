@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mindfire-test/d-cron/internal/clock"
-	"github.com/mindfire-test/d-cron/internal/elector"
-	"github.com/mindfire-test/d-cron/internal/executor"
-	"github.com/mindfire-test/d-cron/internal/store"
-	"github.com/mindfire-test/d-cron/metrics"
+	"github.com/mindfiredigital/d-cron/internal/clock"
+	"github.com/mindfiredigital/d-cron/internal/elector"
+	"github.com/mindfiredigital/d-cron/internal/executor"
+	"github.com/mindfiredigital/d-cron/internal/store"
+	"github.com/mindfiredigital/d-cron/metrics"
 )
 
 const (

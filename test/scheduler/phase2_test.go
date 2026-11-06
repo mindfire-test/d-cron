@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
-	"github.com/mindfire-test/d-cron/metrics"
+	"github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/metrics"
 )
 
 type recordingRecorder struct {

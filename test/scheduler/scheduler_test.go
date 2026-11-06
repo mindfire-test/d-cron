@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
-	"github.com/mindfire-test/d-cron/internal/elector"
+	"github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/internal/elector"
 )
 
 type schedBackend struct {

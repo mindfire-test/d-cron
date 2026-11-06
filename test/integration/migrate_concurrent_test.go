@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mindfire-test/d-cron/internal/store"
+	"github.com/mindfiredigital/d-cron/internal/store"
 )
 
 // TestMigrate_TenReplicasConcurrent is the #34 acceptance run: 10 replicas

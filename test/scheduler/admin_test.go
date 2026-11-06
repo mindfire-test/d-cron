@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/dcron"
 )
 
 func newAdminScheduler(t *testing.T) *dcron.Scheduler {

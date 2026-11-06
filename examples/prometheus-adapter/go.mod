@@ -1,9 +1,9 @@
-module github.com/mindfire-test/d-cron/examples/prometheus-adapter
+module github.com/mindfiredigital/d-cron/examples/prometheus-adapter
 
 go 1.23
 
 require (
-	github.com/mindfire-test/d-cron v0.0.0
+	github.com/mindfiredigital/d-cron v0.0.0
 	github.com/prometheus/client_golang v1.19.1
 )
 
@@ -17,4 +17,4 @@ require (
 	google.golang.org/protobuf v1.33.0 // indirect
 )
 
-replace github.com/mindfire-test/d-cron => ../../
+replace github.com/mindfiredigital/d-cron => ../../

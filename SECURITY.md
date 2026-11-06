@@ -19,7 +19,7 @@ The `d-cron` team takes the security of our library seriously. If you discover a
 
 Please submit vulnerability reports through GitHub Private Vulnerability Reporting:
 
-Open a private advisory report at [https://github.com/mindfire-test/d-cron/security/advisories/new](https://github.com/mindfire-test/d-cron/security/advisories/new).
+Open a private advisory report at [https://github.com/mindfiredigital/d-cron/security/advisories/new](https://github.com/mindfiredigital/d-cron/security/advisories/new).
 
 ### Information to Include
 
@@ -39,4 +39,4 @@ To help us triage and resolve the issue quickly, please include as much of the f
 
 ### Non-Security Inquiries and General Bugs
 
-For normal bugs, documentation questions, and feature requests that do not expose exploitable security vulnerabilities or sensitive data, please open a standard issue at [https://github.com/mindfire-test/d-cron/issues](https://github.com/mindfire-test/d-cron/issues).
+For normal bugs, documentation questions, and feature requests that do not expose exploitable security vulnerabilities or sensitive data, please open a standard issue at [https://github.com/mindfiredigital/d-cron/issues](https://github.com/mindfiredigital/d-cron/issues).

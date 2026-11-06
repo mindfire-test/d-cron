@@ -34,7 +34,7 @@ By participating in this project, you agree to abide by the [CODE_OF_CONDUCT.md]
    ```
 3. Add the upstream remote:
    ```bash
-   git remote add upstream https://github.com/mindfire-test/d-cron.git
+   git remote add upstream https://github.com/mindfiredigital/d-cron.git
    ```
 
 ---

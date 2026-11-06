@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mindfire-test/d-cron/internal/clock"
-	"github.com/mindfire-test/d-cron/internal/executor"
+	"github.com/mindfiredigital/d-cron/internal/clock"
+	"github.com/mindfiredigital/d-cron/internal/executor"
 )
 
 // JobFunc is the signature of a job's execution function.

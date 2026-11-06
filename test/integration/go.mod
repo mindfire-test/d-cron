@@ -1,10 +1,10 @@
-module github.com/mindfire-test/d-cron/test/integration
+module github.com/mindfiredigital/d-cron/test/integration
 
 go 1.23
 
 require (
 	github.com/lib/pq v1.12.3
-	github.com/mindfire-test/d-cron v0.0.0
+	github.com/mindfiredigital/d-cron v0.0.0
 	github.com/testcontainers/testcontainers-go v0.32.0
 )
 
@@ -59,4 +59,4 @@ require (
 	google.golang.org/protobuf v1.33.0 // indirect
 )
 
-replace github.com/mindfire-test/d-cron => ../../
+replace github.com/mindfiredigital/d-cron => ../../

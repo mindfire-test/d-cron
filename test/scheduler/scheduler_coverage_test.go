@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/dcron"
 )
 
 // TestScheduler_WithNoOverlap_SkipsRunning proves that with WithNoOverlap(),

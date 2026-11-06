@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mindfire-test/d-cron/internal/elector"
+	"github.com/mindfiredigital/d-cron/internal/elector"
 )
 
 // LeadershipState describes this replica's position in leader election.

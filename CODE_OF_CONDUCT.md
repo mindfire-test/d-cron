@@ -60,7 +60,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior should be
 reported to the community leaders responsible for enforcement by opening an issue in
-the [d-cron repository](https://github.com/mindfire-test/d-cron/issues). All complaints will be reviewed and investigated
+the [d-cron repository](https://github.com/mindfiredigital/d-cron/issues). All complaints will be reviewed and investigated
 promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the

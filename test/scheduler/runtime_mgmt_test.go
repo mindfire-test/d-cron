@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/dcron"
 )
 
 // newManagedScheduler returns a started scheduler with an always-leader fake

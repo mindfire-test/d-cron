@@ -1,10 +1,10 @@
-module github.com/mindfire-test/d-cron/examples/with-dashboard
+module github.com/mindfiredigital/d-cron/examples/with-dashboard
 
 go 1.23
 
-replace github.com/mindfire-test/d-cron => ../../
+replace github.com/mindfiredigital/d-cron => ../../
 
 require (
 	github.com/lib/pq v1.12.3
-	github.com/mindfire-test/d-cron v0.0.0-00010101000000-000000000000
+	github.com/mindfiredigital/d-cron v0.0.0-00010101000000-000000000000
 )

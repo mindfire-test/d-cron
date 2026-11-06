@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mindfire-test/d-cron/dcron"
-	"github.com/mindfire-test/d-cron/otel"
+	"github.com/mindfiredigital/d-cron/dcron"
+	"github.com/mindfiredigital/d-cron/otel"
 )
 
 // 1. Point 3: Registration Consistency (Add vs AddDynamic)

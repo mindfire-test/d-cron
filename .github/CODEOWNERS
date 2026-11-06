@@ -1,18 +1,18 @@
 # CODEOWNERS for d-cron
 
 # Global maintainers
-* @mindfire-test
+* @mindfiredigital
 
 # Core architecture & elector
-/internal/elector/ @mindfire-test
+/internal/elector/ @mindfiredigital
 
 # Scheduler & public API
-/dcron/ @mindfire-test
+/dcron/ @mindfiredigital
 
 # Observability subpackages
-/metrics/ @mindfire-test
-/ui/ @mindfire-test
-/otel/ @mindfire-test
+/metrics/ @mindfiredigital
+/ui/ @mindfiredigital
+/otel/ @mindfiredigital
 
 # CI workflows
-/.github/ @mindfire-test
+/.github/ @mindfiredigital

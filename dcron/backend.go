@@ -3,7 +3,7 @@ package dcron
 import (
 	"context"
 
-	"github.com/mindfire-test/d-cron/internal/elector"
+	"github.com/mindfiredigital/d-cron/internal/elector"
 )
 
 // LockBackend is the pluggable leadership-lock contract behind NewWithBackend.
