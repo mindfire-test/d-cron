@@ -11,10 +11,10 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://mindfire-test.github.io',
+  url: 'https://mindfiredigital.github.io',
   baseUrl: '/d-cron/',
 
-  organizationName: 'mindfire-test',
+  organizationName: 'mindfiredigital',
   projectName: 'd-cron',
 
   onBrokenLinks: 'throw',
@@ -61,7 +61,7 @@ const config: Config = {
           label: 'Documentation',
         },
         {
-          href: 'https://github.com/mindfire-test/d-cron',
+          href: 'https://github.com/mindfiredigital/d-cron',
           position: 'right',
           className: 'header-github-link',
           'aria-label': 'GitHub repository',
