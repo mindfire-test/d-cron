@@ -361,7 +361,7 @@ func (s *Scheduler) setJobPauseState(name string, paused bool, opName string) er
 	j.statusMu.Lock()
 	j.paused = paused
 	j.statusMu.Unlock()
-	s.opts.logger.Info(fmt.Sprintf("dcron: job %sd", opName), "job", name)
+	s.opts.logger.Info(fmt.Sprintf("dcron: job %sd", opName), "job", sanitizeLogValue(name))
 	return nil
 }
 
@@ -404,7 +404,7 @@ func (s *Scheduler) Remove(name string) error {
 		}
 	}
 	delete(s.jobs, name)
-	s.opts.logger.Info("dcron: job removed", "job", name)
+	s.opts.logger.Info("dcron: job removed", "job", sanitizeLogValue(name))
 	return nil
 }
 
@@ -446,7 +446,7 @@ func (s *Scheduler) AddDynamic(name, spec string, fn JobFunc, opts ...JobOption)
 	if err := s.registerJobLocked(name, spec, fn, opts...); err != nil {
 		return err
 	}
-	s.opts.logger.Info("dcron: job added dynamically", "job", name, "spec", spec)
+	s.opts.logger.Info("dcron: job added dynamically", "job", sanitizeLogValue(name), "spec", sanitizeLogValue(spec))
 	return nil
 }
 
@@ -484,9 +484,9 @@ func (s *Scheduler) reconcileJobStates(epoch int64) {
 				fn, hasFn := s.handlers[name]
 				if hasFn && fn != nil {
 					if err := s.registerJobLocked(name, st.Spec, fn); err != nil {
-						s.opts.logger.Warn("dcron: failed to restore dynamic job on promotion", "job", name, "err", err)
+						s.opts.logger.Warn("dcron: failed to restore dynamic job on promotion", "job", sanitizeLogValue(name), "err", err)
 					} else {
-						s.opts.logger.Info("dcron: restored dynamic job on promotion", "job", name)
+						s.opts.logger.Info("dcron: restored dynamic job on promotion", "job", sanitizeLogValue(name))
 						if st.Paused {
 							if dj, exists := s.jobs[name]; exists {
 								dj.statusMu.Lock()
@@ -496,7 +496,7 @@ func (s *Scheduler) reconcileJobStates(epoch int64) {
 						}
 					}
 				} else {
-					s.opts.logger.Info("dcron: dynamic job found in db without registered handler on promoted replica", "job", name)
+					s.opts.logger.Info("dcron: dynamic job found in db without registered handler on promoted replica", "job", sanitizeLogValue(name))
 				}
 			}
 			continue
@@ -504,19 +504,27 @@ func (s *Scheduler) reconcileJobStates(epoch int64) {
 
 		if st.Removed {
 			if st.Origin == "static" {
-				s.opts.logger.Info("dcron: keeping static job registered in code despite removed row", "job", name)
+				s.opts.logger.Info("dcron: keeping static job registered in code despite removed row", "job", sanitizeLogValue(name))
 				continue
 			}
 			delete(s.jobs, name)
-			s.opts.logger.Info("dcron: reconciled removed dynamic job on promotion", "job", name)
+			s.opts.logger.Info("dcron: reconciled removed dynamic job on promotion", "job", sanitizeLogValue(name))
 			continue
 		}
 
 		j.statusMu.Lock()
 		if j.paused != st.Paused {
 			j.paused = st.Paused
-			s.opts.logger.Info("dcron: reconciled paused state on promotion", "job", name, "paused", st.Paused)
+			s.opts.logger.Info("dcron: reconciled paused state on promotion", "job", sanitizeLogValue(name), "paused", st.Paused)
 		}
 		j.statusMu.Unlock()
 	}
+}
+
+// sanitizeLogValue strips carriage returns and newlines from strings before logging
+// to prevent log injection vulnerabilities (CWE-117).
+func sanitizeLogValue(v string) string {
+	v = strings.ReplaceAll(v, "\n", "")
+	v = strings.ReplaceAll(v, "\r", "")
+	return v
 }

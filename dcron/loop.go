@@ -174,7 +174,7 @@ func (s *Scheduler) catchUpMissedRuns(epoch int64) {
 		recent, err := s.store.Recent(queryCtx, s.opts.namespace, j.name, 1)
 		cancel()
 		if err != nil {
-			s.opts.logger.Warn("dcron: failed to query recent executions for catchup", "job", j.name, "err", err)
+			s.opts.logger.Warn("dcron: failed to query recent executions for catchup", "job", sanitizeLogValue(j.name), "err", err)
 			continue
 		}
 		if len(recent) == 0 {
@@ -217,7 +217,7 @@ func (s *Scheduler) catchUpMissedRuns(epoch int64) {
 			}
 			if !j.overlap && !j.busy.TryLock() {
 				s.mu.Unlock()
-				s.opts.logger.Warn("dcron: skipping catchup fire while previous run is active", "job", j.name)
+				s.opts.logger.Warn("dcron: skipping catchup fire while previous run is active", "job", sanitizeLogValue(j.name))
 				continue
 			}
 			s.invoke(j, epoch, fireAt)
@@ -341,7 +341,7 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 		isPaused := j.paused
 		j.statusMu.Unlock()
 		if isPaused {
-			s.opts.logger.Info("dcron: skipping fire for paused job", "job", j.name)
+			s.opts.logger.Info("dcron: skipping fire for paused job", "job", sanitizeLogValue(j.name))
 			continue
 		}
 		if !j.overlap && !j.busy.TryLock() {
@@ -349,9 +349,9 @@ func (s *Scheduler) fireDue(now time.Time, epoch int64) {
 				j.statusMu.Lock()
 				j.queuedRun = true
 				j.statusMu.Unlock()
-				s.opts.logger.Info("dcron: queuing fire while previous run is active", "job", j.name)
+				s.opts.logger.Info("dcron: queuing fire while previous run is active", "job", sanitizeLogValue(j.name))
 			} else {
-				s.opts.logger.Warn("dcron: skipping fire while previous run is active", "job", j.name)
+				s.opts.logger.Warn("dcron: skipping fire while previous run is active", "job", sanitizeLogValue(j.name))
 				s.opts.rec.MissedRun(j.name)
 			}
 			continue
@@ -405,7 +405,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 			})
 			cancel()
 			if err != nil {
-				s.opts.logger.Warn("dcron: history record failed", "job", j.name, "err", err)
+				s.opts.logger.Warn("dcron: history record failed", "job", sanitizeLogValue(j.name), "err", err)
 				if errors.Is(err, store.ErrFenced) {
 					s.opts.rec.FencedWrite()
 				}
@@ -454,12 +454,12 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 			})
 			cancel()
 			if err != nil {
-				s.opts.logger.Warn("dcron: history finish failed", "job", j.name, "err", err)
+				s.opts.logger.Warn("dcron: history finish failed", "job", sanitizeLogValue(j.name), "err", err)
 				if hr, ok := s.opts.rec.(metrics.HistoryRecorder); ok {
 					hr.RecordFailure(j.name)
 				}
 			} else if rows == 0 {
-				s.opts.logger.Warn("dcron: fenced write detected on finish", "job", j.name)
+				s.opts.logger.Warn("dcron: fenced write detected on finish", "job", sanitizeLogValue(j.name))
 				s.opts.rec.FencedWrite()
 			}
 		}
@@ -467,7 +467,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 
 		if _, isSinceSuccess := j.sched.(clock.SinceSuccessSchedule); isSinceSuccess {
 			if j.stopOnFailure && res.Outcome != executor.OutcomeOK {
-				s.opts.logger.Warn("dcron: since-last-success job failed and will not be rescheduled (stop-on-failure enabled)", "job", j.name, "outcome", res.Outcome.String(), "err", res.Error)
+				s.opts.logger.Warn("dcron: since-last-success job failed and will not be rescheduled (stop-on-failure enabled)", "job", sanitizeLogValue(j.name), "outcome", res.Outcome.String(), "err", res.Error)
 			} else {
 				s.mu.Lock()
 				if s.started && s.leader.IsLeader() {
@@ -500,7 +500,7 @@ func (s *Scheduler) invoke(j *Job, epoch int64, fireAt time.Time) {
 				if !j.overlap {
 					j.busy.Unlock()
 				}
-				s.opts.logger.Info("dcron: skipping queued run after leadership transition", "job", j.name)
+				s.opts.logger.Info("dcron: skipping queued run after leadership transition", "job", sanitizeLogValue(j.name))
 				return
 			}
 			currentEpoch := s.currentEpoch
