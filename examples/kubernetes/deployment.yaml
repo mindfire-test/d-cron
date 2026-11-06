@@ -1,0 +1,49 @@
+# Deployment scaffold for multi-replica d-cron deployments.
+# Replicas share one Postgres advisory-lock namespace; exactly one
+# becomes leader and runs the clock.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: d-cron-example
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: d-cron-example
+  template:
+    metadata:
+      labels:
+        app: d-cron-example
+    spec:
+      containers:
+        - name: app
+          image: d-cron-example:latest
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: d-cron-example
+                  key: database-url
+            # Keepalives are strongly recommended: at default OS settings,
+            # a dead or partitioned leader may hold the advisory lock for hours
+            # without triggering failover.
+            - name: DSN_KEEPALIVES
+              value: "keepalives=1&keepalives_idle=60&keepalives_interval=10&keepalives_count=3"
+          ports:
+            - name: probes
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          # terminationGracePeriodSeconds must exceed WithDrainTimeout (30s):
+          # Stop() unlocks first, then drains in-flight jobs within the budget.
+          terminationGracePeriodSeconds: 45

@@ -1,0 +1,27 @@
+# Binaries
+/d-cron
+/examples/pgx/pgx
+/examples/prometheus-adapter/prometheus-adapter
+/examples/minimal/minimal
+/examples/kubernetes/kubernetes
+/examples/with-dashboard/with-dashboard
+*.exe
+*.test
+*.out
+
+# Test/coverage output
+/coverage.out
+/*.prof
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+today_update.txt
+PROJECT_STATUS.txt

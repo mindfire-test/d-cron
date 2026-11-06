@@ -1,0 +1,83 @@
+import {themes as prismThemes} from 'prism-react-renderer';
+import type {Config} from '@docusaurus/types';
+import type * as Preset from '@docusaurus/preset-classic';
+
+const config: Config = {
+  title: 'd-cron',
+  tagline: 'Distributed Cron Scheduler for Horizontally-Scaled Go Applications',
+  favicon: 'img/d-cron-logo.png',
+
+  future: {
+    v4: true,
+  },
+
+  url: 'https://mindfiredigital.github.io',
+  baseUrl: '/d-cron/',
+
+  organizationName: 'mindfiredigital',
+  projectName: 'd-cron',
+
+  onBrokenLinks: 'throw',
+
+  i18n: {
+    defaultLocale: 'en',
+    locales: ['en'],
+  },
+
+  presets: [
+    [
+      'classic',
+      {
+        docs: {
+          sidebarPath: './sidebars.ts',
+        },
+        blog: false,
+        theme: {
+          customCss: './src/css/custom.css',
+        },
+      } satisfies Preset.Options,
+    ],
+  ],
+
+
+  themeConfig: {
+    image: 'img/d-cron-logo.png',
+    colorMode: {
+      defaultMode: 'dark',
+      disableSwitch: false,
+      respectPrefersColorScheme: false,
+    },
+    navbar: {
+      title: 'd-cron',
+      logo: {
+        alt: 'd-cron',
+        src: 'img/d-cron-logo.png',
+      },
+      items: [
+        {
+          type: 'docSidebar',
+          sidebarId: 'docsSidebar',
+          position: 'left',
+          label: 'Documentation',
+        },
+        {
+          href: 'https://github.com/mindfiredigital/d-cron',
+          position: 'right',
+          className: 'header-github-link',
+          'aria-label': 'GitHub repository',
+        },
+      ],
+    },
+    footer: {
+      style: 'dark',
+      copyright: `© ${new Date().getFullYear()} Mindfire FOSS`,
+    },
+    prism: {
+      theme: prismThemes.github,
+      darkTheme: prismThemes.dracula,
+      additionalLanguages: ['bash', 'json', 'yaml', 'sql', 'go', 'promql'],
+    },
+  } satisfies Preset.ThemeConfig,
+};
+
+export default config;

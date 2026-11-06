@@ -1,0 +1,140 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/mindfiredigital/d-cron/internal/elector"
+)
+
+var schemaID = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
+// QuoteIdent wraps an SQL identifier in double quotes and escapes embedded quotes.
+func QuoteIdent(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
+func quoteIdent(s string) string {
+	return QuoteIdent(s)
+}
+
+// ErrInvalidSchema is returned when the configured schema name fails the
+// allowlist: non-lowercase identifiers, quoted identifiers, and anything else
+// that could allow an injection are refused rather than interpolated.
+var ErrInvalidSchema = errors.New("store: schema name must be a lowercase SQL identifier")
+
+// ValidateSchema verifies that the schema name conforms to the lowercase identifier allowlist.
+func ValidateSchema(schema string) error {
+	if schema == "public" {
+		return fmt.Errorf("%w: %q is reserved; d-cron never creates its tables in public", ErrInvalidSchema, schema)
+	}
+	if !schemaID.MatchString(schema) {
+		return fmt.Errorf("%w: %q", ErrInvalidSchema, schema)
+	}
+	return nil
+}
+
+func validateSchema(schema string) error {
+	return ValidateSchema(schema)
+}
+
+// SchemaLockKey derives the advisory-lock key that serialises schema
+// migrations for one schema name. It is distinct from the leadership key for
+// the same application namespace because it hashes a different input
+// ("d-cron:migration:<schema>" vs "d-cron:v1:<namespace>"), so acquiring a
+// leadership lock never blocks a migration and vice versa.
+func SchemaLockKey(schema string) int64 {
+	return elector.LockKey("d-cron:migration:" + schema)
+}
+
+// MigrationDDL is the idempotent DDL applied under the migration lock. schema
+// has already passed the allowlist.
+func MigrationDDL(schema string) []string {
+	qSchema := quoteIdent(schema)
+	return []string{
+		`CREATE SCHEMA IF NOT EXISTS ` + qSchema,
+		`CREATE TABLE IF NOT EXISTS ` + qSchema + `.` + quoteIdent("leader_epoch") + ` (
+			namespace   text PRIMARY KEY,
+			epoch       bigint      NOT NULL,
+			instance_id text        NOT NULL,
+			acquired_at timestamptz NOT NULL DEFAULT now()
+		)`,
+		`CREATE TABLE IF NOT EXISTS ` + qSchema + `.` + quoteIdent("execution") + ` (
+			id            bigserial PRIMARY KEY,
+			namespace     text        NOT NULL,
+			job_name      text        NOT NULL,
+			scheduled_at  timestamptz NOT NULL,
+			started_at    timestamptz NOT NULL,
+			finished_at   timestamptz,
+			status        text        NOT NULL,
+			attempt       int         NOT NULL DEFAULT 1,
+			duration_ms   bigint,
+			error         text,
+			instance_id   text        NOT NULL,
+			leader_epoch  bigint      NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS ` + qSchema + `.` + quoteIdent("job_state") + ` (
+			namespace   text        NOT NULL,
+			job_name    text        NOT NULL,
+			paused      boolean     NOT NULL DEFAULT false,
+			removed     boolean     NOT NULL DEFAULT false,
+			spec        text        NOT NULL DEFAULT '',
+			origin      text        NOT NULL DEFAULT 'dynamic',
+			updated_at  timestamptz NOT NULL DEFAULT now(),
+			PRIMARY KEY (namespace, job_name)
+		)`,
+		`CREATE INDEX IF NOT EXISTS execution_job_time_idx
+			ON ` + qSchema + `.` + quoteIdent("execution") + ` (namespace, job_name, scheduled_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS execution_prune_idx
+			ON ` + qSchema + `.` + quoteIdent("execution") + ` (namespace, finished_at)`,
+		`CREATE INDEX IF NOT EXISTS execution_prune_running_idx
+			ON ` + qSchema + `.` + quoteIdent("execution") + ` (namespace, started_at) WHERE status = 'running'`,
+	}
+}
+
+// Migrate creates the schema and table if they do not exist, guarded by a
+// separate advisory lock so N replicas starting at once do not race.
+// It is safe to call from every replica at startup: the DDL is idempotent and
+// the lock serialises the CREATEs. The lock is released before returning, so
+// the reserved connection is returned to the pool cleanly.
+//
+// The migration borrows a dedicated conn from db: the advisory lock is a
+// session lock, so it must be acquired, held, and released on one underlying
+// backend without the pool recycling the connection mid-flight.
+func Migrate(ctx context.Context, db *sql.DB, schema string) error {
+	if err := validateSchema(schema); err != nil {
+		return err
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("store: migrate: borrow conn: %w", err)
+	}
+	defer conn.Close()
+
+	key := SchemaLockKey(schema)
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, key); err != nil {
+		return fmt.Errorf("store: migrate: acquire lock: %w", err)
+	}
+	defer func() {
+		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer unlockCancel()
+		_, _ = conn.ExecContext(unlockCtx, `SELECT pg_advisory_unlock($1)`, key)
+	}()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: migrate: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, stmt := range MigrationDDL(schema) {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("store: migrate: apply: %w", err)
+		}
+	}
+	return tx.Commit()
+}
